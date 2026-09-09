@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 wires `dark:` to prefers-color-scheme by default. Nurora has
+ * an explicit theme toggle that puts `.dark` on <html>, so the variant is
+ * redefined to follow that class — without this every `dark:` utility in
+ * the app silently does nothing when someone switches theme by hand.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ===================================================================
+   Nurora design tokens
+   Calm, warm, clinical-but-human. Sage teal on warm sand, aurora
+   violet as the single accent. Every token has a dark counterpart.
+   =================================================================== */
+
+@theme {
+  --color-brand-50:  #f0f7f5;
+  --color-brand-100: #daece8;
+  --color-brand-200: #b7d9d2;
+  --color-brand-300: #8bc0b6;
+  --color-brand-400: #5ba398;
+  --color-brand-500: #3d867c;
+  --color-brand-600: #2f6f6b;
+  --color-brand-700: #285a58;
+  --color-brand-800: #234846;
+  --color-brand-900: #1f3c3b;
+
+  --color-aurora-300: #c3b5ff;
+  --color-aurora-500: #7c5cff;
+  --color-aurora-600: #6544e6;
+
+  --color-sand-50:  #faf8f4;
+  --color-sand-100: #f4f0e9;
+  --color-sand-200: #e9e3d9;
+
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1rem;
+}
+
+/* Semantic surface tokens — flipped wholesale in dark mode. */
+:root {
+  --bg: #f7f5f1;
+  --bg-subtle: #f1ede6;
+  --card: #ffffff;
+  --card-muted: #fbfaf7;
+  --border: #e6e1d8;
+  --border-strong: #d5cec1;
+  --text: #1a201f;
+  --text-muted: #6b7573;
+  --text-faint: #949c9a;
+  --ring: #2f6f6b;
+  --shadow-card: 0 1px 2px rgb(26 32 31 / 0.05), 0 8px 24px -12px rgb(26 32 31 / 0.14);
+}
+
+.dark {
+  --bg: #0d1312;
+  --bg-subtle: #111a19;
+  --card: #151e1d;
+  --card-muted: #182322;
+  --border: #253230;
+  --border-strong: #33433f;
+  --text: #e9efed;
+  --text-muted: #99a5a2;
+  --text-faint: #6d7a77;
+  --ring: #5ba398;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: var(--color-brand-200);
+    color: var(--color-brand-900);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Inputs inherit the surface tokens so dark mode needs no per-field work. */
+  input, select, textarea {
+    color: var(--text);
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: var(--text-faint);
+  }
+}
+
+@layer utilities {
+  .bg-surface       { background-color: var(--bg); }
+  .bg-surface-subtle{ background-color: var(--bg-subtle); }
+  .bg-card          { background-color: var(--card); }
+  .bg-card-muted    { background-color: var(--card-muted); }
+  .text-body        { color: var(--text); }
+  .text-muted       { color: var(--text-muted); }
+  .text-faint       { color: var(--text-faint); }
+  .border-hairline  { border-color: var(--border); }
+  .border-strong    { border-color: var(--border-strong); }
+  .shadow-card      { box-shadow: var(--shadow-card); }
+
+  /* The "aurora" wash used behind hero and empty states. */
+  .aurora {
+    background-image:
+      radial-gradient(60% 80% at 15% 0%, color-mix(in oklab, var(--color-brand-300) 42%, transparent), transparent 70%),
+      radial-gradient(50% 70% at 90% 10%, color-mix(in oklab, var(--color-aurora-300) 40%, transparent), transparent 70%);
+  }
+
+  .animate-in-up {
+    animation: in-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
