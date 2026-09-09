@@ -46,6 +46,29 @@ try {
   step("Landing page");
   await page.goto(APP, { waitUntil: "networkidle" });
   check("hero copy renders", await page.getByText("is about to happen.").isVisible());
+
+  // Guard the whole styling pipeline. A 404 on the stylesheet, or a theme
+  // token that resolves to nothing, drops the app to unstyled system fonts
+  // without throwing anything.
+  const styling = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const root = getComputedStyle(document.documentElement);
+    const h1 = document.querySelector("h1");
+    return {
+      brand: root.getPropertyValue("--color-brand-600").trim(),
+      sans: root.getPropertyValue("--font-sans").trim(),
+      display: root.getPropertyValue("--font-display").trim(),
+      bodyFont: getComputedStyle(document.body).fontFamily.split(",")[0].replace(/['"]/g, ""),
+      headingFont: h1 ? getComputedStyle(h1).fontFamily.split(",")[0].replace(/['"]/g, "") : "",
+      sheets: document.styleSheets.length,
+    };
+  });
+  check("stylesheet loaded", styling.sheets > 0, `${styling.sheets} sheets`);
+  check("brand colour token resolves", styling.brand === "#2f6f6b", styling.brand || "(empty)");
+  check("--font-sans resolves", styling.sans.length > 0, styling.sans || "(empty)");
+  check("--font-display resolves", styling.display.length > 0, styling.display || "(empty)");
+  check("body renders in Inter", styling.bodyFont === "Inter", styling.bodyFont);
+  check("headings render in Fraunces", styling.headingFont === "Fraunces", styling.headingFont);
   await page.screenshot({ path: `${SHOTS}/01-landing.png`, fullPage: true });
 
   step("Sign-up page");

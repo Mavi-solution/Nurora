@@ -37,7 +37,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // The font variables MUST live on <html>, not <body>: Tailwind's @theme
+    // defines --font-sans/--font-display on :root, and a var() reference
+    // that resolves nowhere makes the whole declaration invalid at
+    // computed-value time — which silently drops the app to system fonts.
+    <html
+      lang="en"
+      className={`${inter.variable} ${fraunces.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/* Apply the stored theme before paint so there is no flash. */}
         <script
@@ -46,9 +54,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} ${fraunces.variable}`}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

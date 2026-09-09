@@ -34,8 +34,8 @@
   --color-sand-100: #f4f0e9;
   --color-sand-200: #e9e3d9;
 
-  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces, ui-serif), ui-serif, Georgia, serif;
+  --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, sans-serif;
 
   --radius-card: 1rem;
 }
