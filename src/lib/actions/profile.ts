@@ -137,7 +137,7 @@ export async function updateSettings(formData: FormData) {
 /** Admin-only: change someone's role. */
 export async function setUserRole(
   userId: string,
-  role: "client" | "counsellor" | "admin",
+  role: "client" | "counsellor" | "support" | "admin",
 ) {
   const profile = await currentProfile();
   if (!profile || !(profile.is_admin || profile.role === "admin")) {
@@ -186,5 +186,25 @@ export async function setUserAdmin(userId: string, isAdmin: boolean) {
   if (error) return fail(describeDbError(error.message, error.code));
 
   revalidatePath("/settings");
+  return { ok: true as const };
+}
+
+const passwordSchema = z
+  .string()
+  .min(8, "Use at least 8 characters.")
+  .max(72);
+
+/** Change your own password — counsellors arrive with a temporary one. */
+export async function changePassword(newPassword: string) {
+  const parsed = passwordSchema.safeParse(newPassword);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+
+  const profile = await currentProfile();
+  if (!profile) return fail("Not signed in.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.updateUser({ password: parsed.data });
+  if (error) return fail(error.message);
+
   return { ok: true as const };
 }

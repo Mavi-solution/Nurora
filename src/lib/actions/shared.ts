@@ -62,3 +62,22 @@ export async function requireStaffProfile(): Promise<Profile> {
 export function profileIsAdmin(profile: Profile): boolean {
   return profile.is_admin || profile.role === "admin";
 }
+
+/** Admins and the support desk: may add counsellors and run the diary. */
+export function profileCanManagePractice(profile: Profile): boolean {
+  return profileIsAdmin(profile) || profile.role === "support";
+}
+
+/** Clinicians only — session notes and session timers. */
+export function profileIsClinical(profile: Profile): boolean {
+  return profileIsAdmin(profile) || profile.role === "counsellor";
+}
+
+export async function requirePracticeManager(): Promise<Profile> {
+  const profile = await currentProfile();
+  if (!profile) throw new Error("Not signed in");
+  if (!profileCanManagePractice(profile)) {
+    throw new Error("Admin or support access required");
+  }
+  return profile;
+}

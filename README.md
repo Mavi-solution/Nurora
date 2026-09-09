@@ -14,6 +14,15 @@ full control of the practice.
 
 ## What it does
 
+**Booking desk** — clients do not book themselves. They call, and whoever
+picks up works a three-step flow: find the caller (by phone digits, so
+repeat callers never get duplicated), capture their details and what they
+need help with, then match them to a counsellor **by specialism and
+language** and take a slot from real availability. If the day is full it
+offers the next days that are not, so nobody is turned away on the phone.
+Every booking records who took it and how it arrived (phone, walk-in,
+referral, online).
+
 **Schedule board** — the day's sessions grouped into a lane per counsellor.
 A 7-day strip expands to a full month. Each row shows the time, the client,
 an inline age chip, and a Start button. Open slots in a counsellor's
@@ -42,16 +51,30 @@ built-in SpeechRecognition — no external service, hidden where unsupported).
 **Roles**
 | Role | Sees |
 | --- | --- |
-| admin *(a flag)* | Every counsellor's lane, all clients, payments, everyone's roles |
-| `counsellor` | The shared board; starts/ends only their own sessions |
-| `client` | Their own sessions only, and can book into open slots |
+| admin *(a flag)* | Everything: every lane, all clients, payments, roles |
+| `counsellor` | The shared board; starts/ends only their own sessions; their own session notes |
+| `support` | The booking desk: clients, bookings, counsellors, availability, payments — **but no session notes and no session timers** |
+| `client` | Read-only view of their own sessions |
 
 Admin is a **flag rather than a role**, so one person can run sessions as a
 counsellor *and* administer the practice.
 
-Clients are **records first**: staff create them with a name, age and contact
-details. A client only gets a login if they sign in with the same email or
-phone, at which point their account links automatically.
+**Clinical notes are separated by design.** Reception has to read
+appointment rows to run the diary, and row-level security cannot hide a
+single column — so session notes live in their own `session_notes` table
+whose policy admits only the treating counsellor and admins. Support sees
+the booking notes from the call; never the case notes.
+
+**Counsellors are added by the practice, not by self-service.** Support or
+an admin creates them with a specialism set, the languages they work in, a
+fee and a session length, and hands over a temporary password. Their
+working hours are then fed in under Availability, which is what makes them
+appear in the desk's slot search.
+
+Clients are **records first**: staff create them with a name, age, contact
+details, preferred language and what they are calling about. A client only
+gets a login if they sign in with the same email or phone, at which point
+their account links automatically — and even then it is read-only.
 
 ---
 
@@ -118,6 +141,11 @@ Signing in with the demo seed:
 | `ramya@nurora.demo` | `nurora1234` | counsellor |
 | `mahek@nurora.demo` | `nurora1234` | counsellor |
 | `saranya@nurora.demo` | `nurora1234` | counsellor |
+| `support@nurora.demo` | `nurora1234` | **booking desk** (support role) |
+
+Sign in as `support@nurora.demo` to see the desk exactly as reception does:
+no timesheet, no session notes, disabled Start buttons, but full control of
+bookings, clients, counsellors and availability.
 
 ### 4. Deploy
 
@@ -141,6 +169,7 @@ npm run build        # production build
 npm run test:logic   # timezone, slot and reminder arithmetic (no services needed)
 npm run test:e2e     # full browser walkthrough against a local Supabase stack
 npm run test:signup  # first-account bootstrap: counsellor + admin, on an empty DB
+npm run test:desk    # the booking desk, driven as reception: lookup → capture → match → book
 ```
 
 `test:e2e` needs Docker and the local stack (`npx supabase start`). It checks
@@ -154,6 +183,12 @@ walkthrough completes a session. Screenshots of every step land in
 first account really is a counsellor with `is_admin` set, lands on the
 schedule, gets a default working week, and that a *second* sign-up is not
 made an admin.
+
+`test:desk` signs in as reception and books a session end to end, then checks
+what reached the database: the booking channel, the call notes, that the
+matched counsellor genuinely holds the requested specialism, that an invoice
+was raised, and that reception can read the booking notes but **not** the
+session notes.
 
 The logic checks cover DST transitions in both directions, month and year
 boundaries, partial-day blocks, and the case where a late-evening IST session

@@ -36,21 +36,32 @@ export function AppNav({
     setOpen(false);
   }, [pathname]);
 
-  const staff = profile.role === "counsellor" || profile.role === "admin" || profile.is_admin;
+  const staff =
+    profile.role === "counsellor" ||
+    profile.role === "admin" ||
+    profile.role === "support" ||
+    profile.is_admin;
+  const manages =
+    profile.role === "admin" || profile.role === "support" || profile.is_admin;
+  const clinical =
+    profile.role === "counsellor" || profile.role === "admin" || profile.is_admin;
 
   const items: NavItem[] = staff
     ? [
         { href: "/schedule", label: "Schedule", icon: <CalendarIcon /> },
+        { href: "/book", label: "Book a session", icon: <PlusIcon /> },
         { href: "/clients", label: "Clients", icon: <UsersIcon /> },
+        ...(manages
+          ? [{ href: "/counsellors", label: "Counsellors", icon: <BadgeIcon /> }]
+          : []),
         { href: "/availability", label: "Availability", icon: <SlidersIcon /> },
         { href: "/payments", label: "Payments", icon: <WalletIcon /> },
-        { href: "/timesheet", label: "Timesheet", icon: <ClockIcon /> },
+        ...(clinical
+          ? [{ href: "/timesheet", label: "Timesheet", icon: <ClockIcon /> }]
+          : []),
         { href: "/team", label: "Team", icon: <ChatIcon /> },
       ]
-    : [
-        { href: "/my", label: "My sessions", icon: <CalendarIcon /> },
-        { href: "/my/book", label: "Book a session", icon: <PlusIcon /> },
-      ];
+    : [{ href: "/my", label: "My sessions", icon: <CalendarIcon /> }];
 
   return (
     <>
@@ -199,6 +210,12 @@ const ChatIcon = () => (
 const PlusIcon = () => (
   <svg {...icon}>
     <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+const BadgeIcon = () => (
+  <svg {...icon}>
+    <circle cx="12" cy="9" r="4" />
+    <path d="M8.5 12.5 7 21l5-2.5L17 21l-1.5-8.5" />
   </svg>
 );
 const SettingsIcon = () => (

@@ -9,7 +9,7 @@ import {
   addManualTime,
   cancelAppointment,
   endSession,
-  saveCounsellorNotes,
+  saveSessionNote,
   setAppointmentStatus,
   startSession,
 } from "@/lib/actions/appointments";
@@ -21,14 +21,16 @@ export function AppointmentActions({
   running,
   isStaff,
   canRun,
-  counsellorNotes,
+  isClinical,
+  sessionNote,
 }: {
   appointmentId: string;
   status: AppointmentStatus;
   running: TimeEntry | null;
   isStaff: boolean;
   canRun: boolean;
-  counsellorNotes: string;
+  isClinical: boolean;
+  sessionNote: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function AppointmentActions({
   const [manualOpen, setManualOpen] = useState(false);
   const [minutes, setMinutes] = useState("60");
   const [manualNote, setManualNote] = useState("");
-  const [notes, setNotes] = useState(counsellorNotes);
+  const [notes, setNotes] = useState(sessionNote);
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, success?: string) {
     setError(null);
@@ -77,7 +79,7 @@ export function AppointmentActions({
             </div>
           )}
 
-          {isStaff && !finished && (
+          {isClinical && !finished && (
             running ? (
               <Button
                 className="w-full"
@@ -97,7 +99,7 @@ export function AppointmentActions({
             )
           )}
 
-          {isStaff && !finished && (
+          {isClinical && !finished && (
             <Button
               variant="secondary"
               className="w-full"
@@ -140,9 +142,12 @@ export function AppointmentActions({
         </div>
       </Card>
 
-      {isStaff && (
+      {isClinical && (
         <Card>
-          <CardHeader title="Counsellor notes" description="Private to the practice." />
+          <CardHeader
+            title="Session notes"
+            description="Clinical record — only you and an admin can read this."
+          />
           <div className="px-5 py-4 space-y-3">
             <textarea
               value={notes}
@@ -154,8 +159,8 @@ export function AppointmentActions({
             <Button
               variant="secondary"
               size="sm"
-              disabled={pending || notes === counsellorNotes}
-              onClick={() => run(() => saveCounsellorNotes(appointmentId, notes), "Notes saved.")}
+              disabled={pending || notes === sessionNote}
+              onClick={() => run(() => saveSessionNote(appointmentId, notes), "Notes saved.")}
             >
               Save notes
             </Button>

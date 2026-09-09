@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { Card, CardHeader, EmptyState, InvoiceBadge, StatusBadge } from "@/components/ui";
-import { ButtonLink } from "@/components/ui";
+import { Alert, Card, CardHeader, EmptyState, InvoiceBadge, StatusBadge } from "@/components/ui";
 import { requireSession } from "@/lib/auth";
 import { formatDateTime, formatMoney, relativeDays } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -76,7 +75,13 @@ export default async function MySessionsPage() {
           </p>
         </div>
         <div className="flex-1" />
-        <ButtonLink href="/my/book">Book a session</ButtonLink>
+      </div>
+
+      <div className="mb-4">
+        <Alert tone="info">
+          To book, move or cancel a session, call the practice — our team will
+          arrange it with you and confirm by email.
+        </Alert>
       </div>
 
       <div className="space-y-4">
@@ -85,8 +90,7 @@ export default async function MySessionsPage() {
           {upcoming.length === 0 ? (
             <EmptyState
               title="Nothing booked"
-              description="Book a session and you'll get a reminder three days before."
-              action={<ButtonLink href="/my/book">Book a session</ButtonLink>}
+              description="Give the practice a call to arrange a session. You'll get a reminder three days before it."
             />
           ) : (
             <ul className="divide-y divide-[var(--border)]">

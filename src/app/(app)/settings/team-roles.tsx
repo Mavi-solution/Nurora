@@ -6,7 +6,7 @@ import { Alert, Avatar, Card, CardHeader } from "@/components/ui";
 import { setUserAdmin, setUserRole } from "@/lib/actions/profile";
 import type { Profile, UserRole } from "@/lib/types";
 
-const ROLES: UserRole[] = ["client", "counsellor", "admin"];
+const ROLES: UserRole[] = ["client", "counsellor", "support", "admin"];
 
 export function TeamRoles({
   people,

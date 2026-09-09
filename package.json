@@ -11,7 +11,8 @@
     "test:logic": "node scripts/check-time-logic.mjs",
     "test:e2e": "supabase db reset && node scripts/e2e.mjs",
     "db:reset": "supabase db reset",
-    "test:signup": "supabase db reset && node scripts/check-signup.mjs"
+    "test:signup": "supabase db reset && node scripts/check-signup.mjs",
+    "test:desk": "supabase db reset && node scripts/check-booking-desk.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

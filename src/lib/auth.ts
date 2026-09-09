@@ -58,7 +58,29 @@ export function isAdmin(profile: Pick<Profile, "role" | "is_admin">): boolean {
 }
 
 export function isStaff(profile: Pick<Profile, "role" | "is_admin">): boolean {
+  return (
+    profile.role === "counsellor" ||
+    profile.role === "admin" ||
+    profile.role === "support" ||
+    profile.is_admin
+  );
+}
+
+/** Reception / booking desk. Runs the diary, never reads clinical notes. */
+export function isSupport(profile: Pick<Profile, "role">): boolean {
+  return profile.role === "support";
+}
+
+/** Clinicians — the only people who may read or write session notes. */
+export function isClinical(profile: Pick<Profile, "role" | "is_admin">): boolean {
   return profile.role === "counsellor" || profile.role === "admin" || profile.is_admin;
+}
+
+/** May add counsellors, manage the diary, and maintain client records. */
+export function canManagePractice(
+  profile: Pick<Profile, "role" | "is_admin">,
+): boolean {
+  return profile.role === "admin" || profile.role === "support" || profile.is_admin;
 }
 
 /** Absolute origin, used in emails and OAuth redirects. */

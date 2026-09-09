@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, CardHeader, InvoiceBadge, Pill, StatusBadge } from "@/components/ui";
-import { isAdmin, isStaff, requireSession } from "@/lib/auth";
+import { isAdmin, isClinical, isStaff, requireSession } from "@/lib/auth";
 import { formatDateTime, formatDuration, formatMoney, formatTimeRange } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
-import type { Appointment, Client, Invoice, Profile, TimeEntry } from "@/lib/types";
+import type { Appointment, Client, Invoice, Profile, SessionNote, TimeEntry } from "@/lib/types";
 import { AppointmentActions } from "./actions-panel";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +27,15 @@ export default async function AppointmentPage({
   if (!appointment) notFound();
   const appt = appointment as Appointment;
 
-  const [{ data: client }, { data: counsellor }, { data: entries }, { data: invoice }] =
-    await Promise.all([
+  const clinical = isClinical(profile);
+
+  const [
+    { data: client },
+    { data: counsellor },
+    { data: entries },
+    { data: invoice },
+    { data: note },
+  ] = await Promise.all([
       supabase.from("clients").select("*").eq("id", appt.client_id).maybeSingle(),
       supabase.from("profiles").select("*").eq("id", appt.counsellor_id).maybeSingle(),
       supabase
@@ -37,7 +44,17 @@ export default async function AppointmentPage({
         .eq("appointment_id", id)
         .order("started_at", { ascending: false }),
       supabase.from("invoices").select("*").eq("appointment_id", id).maybeSingle(),
+      // RLS keeps this empty for support staff; the query is safe either way.
+      clinical
+        ? supabase
+            .from("session_notes")
+            .select("*")
+            .eq("appointment_id", id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
+
+  const sessionNote = (note as SessionNote | null) ?? null;
 
   const timeEntries = (entries ?? []) as TimeEntry[];
   const tracked = timeEntries.reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0);
@@ -140,24 +157,28 @@ export default async function AppointmentPage({
             )}
           </Card>
 
-          {(appt.client_notes || appt.counsellor_notes) && (
+          {(appt.client_notes || appt.booking_notes) && (
             <Card>
-              <CardHeader title="Notes" />
+              <CardHeader title="From the booking" />
               <div className="px-5 py-4 space-y-4 text-[14px]">
                 {appt.client_notes && (
                   <div>
                     <p className="text-[12px] text-faint uppercase tracking-wider mb-1">
-                      From the client
+                      What the client asked for help with
                     </p>
-                    <p className="whitespace-pre-wrap leading-relaxed">{appt.client_notes}</p>
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {appt.client_notes}
+                    </p>
                   </div>
                 )}
-                {appt.counsellor_notes && staff && (
+                {appt.booking_notes && (
                   <div>
                     <p className="text-[12px] text-faint uppercase tracking-wider mb-1">
-                      Counsellor notes
+                      Notes from the call
                     </p>
-                    <p className="whitespace-pre-wrap leading-relaxed">{appt.counsellor_notes}</p>
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {appt.booking_notes}
+                    </p>
                   </div>
                 )}
               </div>
@@ -203,7 +224,8 @@ export default async function AppointmentPage({
             running={running}
             isStaff={staff}
             canRun={isAdmin(profile) || profile.id === appt.counsellor_id}
-            counsellorNotes={appt.counsellor_notes ?? ""}
+            isClinical={clinical}
+            sessionNote={sessionNote?.body ?? ""}
           />
         </div>
       </div>

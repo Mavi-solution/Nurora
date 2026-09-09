@@ -1,6 +1,7 @@
 import { isAdmin, requireSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
+import { PasswordCard } from "./password-card";
 import { SettingsForm } from "./settings-form";
 import { TeamRoles } from "./team-roles";
 
@@ -31,6 +32,8 @@ export default async function SettingsPage() {
       </div>
 
       <SettingsForm profile={profile} />
+
+      <PasswordCard />
 
       {isAdmin(profile) && <TeamRoles people={people} currentUserId={profile.id} />}
     </div>

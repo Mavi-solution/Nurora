@@ -426,7 +426,11 @@ function LaneCard({
   const [showAllSlots, setShowAllSlots] = useState(false);
 
   const booked = appointments.filter((a) => a.status !== "cancelled").length;
-  const canRun = viewer.is_admin || viewer.role === "admin" || viewer.id === counsellor.id;
+  // Only clinicians run timers; the desk can see the diary but not start
+  // a session on someone's behalf.
+  const viewerIsClinical =
+    viewer.role === "counsellor" || viewer.role === "admin" || viewer.is_admin;
+  const canRun = viewerIsClinical && (viewer.is_admin || viewer.role === "admin" || viewer.id === counsellor.id);
 
   const VISIBLE_SLOTS = 4;
   const hiddenSlots = Math.max(0, openSlots.length - VISIBLE_SLOTS);

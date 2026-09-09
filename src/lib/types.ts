@@ -1,4 +1,5 @@
-export type UserRole = "client" | "counsellor" | "admin";
+export type UserRole = "client" | "counsellor" | "admin" | "support";
+export type BookingChannel = "phone" | "walk_in" | "online" | "referral";
 
 export type AppointmentStatus =
   | "scheduled"
@@ -32,6 +33,27 @@ export type Profile = {
   notify_email: boolean;
   notify_sms: boolean;
   notify_whatsapp: boolean;
+  /** Languages this counsellor can hold a session in. */
+  languages: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type Specialism = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+};
+
+/** Clinical notes live apart from the appointment so reception cannot read them. */
+export type SessionNote = {
+  id: string;
+  appointment_id: string;
+  counsellor_id: string;
+  body: string;
   created_at: string;
   updated_at: string;
 };
@@ -45,6 +67,11 @@ export type Client = {
   phone: string | null;
   counsellor_id: string | null;
   notes: string | null;
+  gender: string | null;
+  preferred_language: string | null;
+  /** What the caller said they need help with, in their own words. */
+  presenting_concern: string | null;
+  preferred_specialism_id: string | null;
   is_active: boolean;
   created_by: string | null;
   created_at: string;
@@ -96,7 +123,8 @@ export type Appointment = {
   location: string | null;
   meeting_url: string | null;
   client_notes: string | null;
-  counsellor_notes: string | null;
+  channel: BookingChannel;
+  booking_notes: string | null;
   price_cents: number;
   currency: string;
   booked_by: string | null;
@@ -176,11 +204,37 @@ export type CounsellorSummary = Pick<
   | "default_session_fee_cents"
   | "default_duration_minutes"
   | "currency"
+  | "languages"
 >;
+
+/** A counsellor plus what they help with — what the booking desk matches on. */
+export type CounsellorWithSkills = CounsellorSummary & {
+  email: string | null;
+  phone: string | null;
+  is_active: boolean;
+  specialisms: Specialism[];
+};
+
+/** One bookable slot, resolved against a specific counsellor. */
+export type MatchedSlot = {
+  counsellorId: string;
+  counsellorName: string;
+  startsAt: string;
+  endsAt: string;
+  label: string;
+};
 
 export type ClientSummary = Pick<
   Client,
-  "id" | "full_name" | "age" | "email" | "phone" | "user_id"
+  | "id"
+  | "full_name"
+  | "age"
+  | "email"
+  | "phone"
+  | "user_id"
+  | "preferred_language"
+  | "presenting_concern"
+  | "counsellor_id"
 >;
 
 /** An appointment joined with the parties, its open timer and its invoice. */

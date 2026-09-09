@@ -1,4 +1,11 @@
 /**
+ * ⚠️  DESTRUCTIVE — DELETES EVERY ACCOUNT IN THE LOCAL DATABASE.
+ *
+ * Run it only against the local Supabase stack, never a deployed project.
+ * It needs a database with no accounts at all in order to exercise the
+ * first-account path, and it restores the demo seed when it finishes so
+ * the documented sign-ins keep working.
+ *
  * Verifies the first-account bootstrap on an EMPTY database:
  * signing up must produce a counsellor who also holds admin rights,
  * land them on the schedule, and give them a working lane.
@@ -20,6 +27,15 @@ const check = (name, ok, detail = "") => {
   if (ok) console.log(`  ok    ${name}`);
   else { failures += 1; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`); }
 };
+
+// Refuse to touch anything that is not the local stack.
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+if (url && !/(127\.0\.0\.1|localhost)/.test(url)) {
+  console.error(
+    `Refusing to run: NEXT_PUBLIC_SUPABASE_URL points at ${url}, not the local stack.`,
+  );
+  process.exit(1);
+}
 
 console.log("▸ Emptying the database (no accounts at all)");
 psql("delete from auth.users;");
@@ -108,6 +124,17 @@ try {
   await page.screenshot({ path: "screenshots/signup-failure.png", fullPage: true }).catch(() => {});
 } finally {
   await browser.close();
+
+  // Put the demo accounts back, so anisha@nurora.demo and friends work
+  // again after this test has wiped everything.
+  console.log("\n▸ Restoring the demo seed");
+  try {
+    execSync("npx supabase db reset", { stdio: "ignore" });
+    const restored = psql("select count(*) from profiles;");
+    console.log(`  ok    ${restored} demo accounts restored`);
+  } catch {
+    console.log("  !!    could not restore the seed — run: npx supabase db reset");
+  }
 }
 
 console.log(`\n${failures === 0 ? "Sign-up bootstrap verified." : `${failures} check(s) failed.`}`);

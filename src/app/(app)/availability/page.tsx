@@ -1,4 +1,4 @@
-import { isAdmin, requireStaff } from "@/lib/auth";
+import { canManagePractice, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { AvailabilityException, AvailabilityRule, CounsellorSummary } from "@/lib/types";
 import { AvailabilityEditor } from "./availability-editor";
@@ -25,7 +25,10 @@ export default async function AvailabilityPage({
   const counsellors = (counsellorRows ?? []) as CounsellorSummary[];
 
   // Counsellors edit their own week; admins can pick anyone's.
-  const selectedId = isAdmin(profile)
+  // Admins and the desk maintain everyone's hours; a counsellor edits
+  // only their own.
+  const canPick = canManagePractice(profile);
+  const selectedId = canPick
     ? (params.counsellor ?? counsellors[0]?.id ?? profile.id)
     : profile.id;
 
@@ -45,7 +48,7 @@ export default async function AvailabilityPage({
 
   return (
     <AvailabilityEditor
-      canPickCounsellor={isAdmin(profile)}
+      canPickCounsellor={canPick}
       counsellors={counsellors}
       selectedId={selectedId}
       rules={(rules ?? []) as AvailabilityRule[]}

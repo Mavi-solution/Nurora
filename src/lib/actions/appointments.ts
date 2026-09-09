@@ -5,10 +5,10 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment } from "@/lib/types";
 import {
-  currentProfile,
   describeDbError,
   fail,
   profileIsAdmin,
+  profileIsClinical,
   requireStaffProfile,
 } from "./shared";
 
@@ -22,14 +22,17 @@ const bookSchema = z.object({
   location: z.string().trim().max(200).optional().nullable(),
   meetingUrl: z.string().trim().max(400).optional().nullable(),
   clientNotes: z.string().trim().max(2000).optional().nullable(),
+  channel: z.enum(["phone", "walk_in", "online", "referral"]).optional(),
+  bookingNotes: z.string().trim().max(2000).optional().nullable(),
 });
 
 export async function bookAppointment(input: unknown) {
   const parsed = bookSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
 
-  const profile = await currentProfile();
-  if (!profile) return fail("Not signed in");
+  // Clients no longer book for themselves — the desk books on their
+  // behalf, so this is staff-only and mirrors the RLS policy.
+  const profile = await requireStaffProfile();
 
   const v = parsed.data;
   const supabase = await createClient();
@@ -50,6 +53,8 @@ export async function bookAppointment(input: unknown) {
       location: v.location || null,
       meeting_url: v.meetingUrl || null,
       client_notes: v.clientNotes || null,
+      channel: v.channel ?? "phone",
+      booking_notes: v.bookingNotes || null,
       booked_by: profile.id,
     })
     .select("id")
@@ -70,12 +75,16 @@ export async function bookAppointment(input: unknown) {
   revalidatePath("/schedule");
   revalidatePath("/my");
   revalidatePath("/payments");
+  revalidatePath("/book");
   return { ok: true as const, data: { id: data.id as string } };
 }
 
 /** Start the billed timer and flip the session to in-progress. */
 export async function startSession(appointmentId: string) {
   const profile = await requireStaffProfile();
+  if (!profileIsClinical(profile)) {
+    return fail("Only a counsellor can start a session.");
+  }
   const supabase = await createClient();
 
   const { data: appt, error: apptError } = await supabase
@@ -113,6 +122,9 @@ export async function startSession(appointmentId: string) {
 /** Close the running timer, complete the session and bill it. */
 export async function endSession(appointmentId: string) {
   const profile = await requireStaffProfile();
+  if (!profileIsClinical(profile)) {
+    return fail("Only a counsellor can end a session.");
+  }
   const supabase = await createClient();
 
   const { data: entry } = await supabase
@@ -163,8 +175,7 @@ export async function endSession(appointmentId: string) {
 }
 
 export async function cancelAppointment(appointmentId: string, reason: string) {
-  const profile = await currentProfile();
-  if (!profile) return fail("Not signed in");
+  const profile = await requireStaffProfile();
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -196,7 +207,7 @@ export async function rescheduleAppointment(
   startsAtIso: string,
   durationMinutes: number,
 ) {
-  await currentProfile();
+  await requireStaffProfile();
   const supabase = await createClient();
 
   const startsAt = new Date(startsAtIso);
@@ -237,14 +248,38 @@ export async function setAppointmentStatus(
   return { ok: true as const };
 }
 
-export async function saveCounsellorNotes(appointmentId: string, notes: string) {
-  await requireStaffProfile();
+/**
+ * Session notes are clinical records: they live in their own table so
+ * reception staff, who must read appointment rows to run the diary,
+ * cannot read them.
+ */
+export async function saveSessionNote(appointmentId: string, body: string) {
+  const profile = await requireStaffProfile();
+  if (!profileIsClinical(profile)) {
+    return fail("Only the treating counsellor can write session notes.");
+  }
+
   const supabase = await createClient();
 
-  const { error } = await supabase
+  const { data: appt } = await supabase
     .from("appointments")
-    .update({ counsellor_notes: notes })
-    .eq("id", appointmentId);
+    .select("counsellor_id")
+    .eq("id", appointmentId)
+    .single();
+
+  if (!appt) return fail("Session not found.");
+  if (!profileIsAdmin(profile) && appt.counsellor_id !== profile.id) {
+    return fail("Only the treating counsellor can write these notes.");
+  }
+
+  const { error } = await supabase.from("session_notes").upsert(
+    {
+      appointment_id: appointmentId,
+      counsellor_id: appt.counsellor_id,
+      body,
+    },
+    { onConflict: "appointment_id" },
+  );
 
   if (error) return fail(describeDbError(error.message, error.code));
 
