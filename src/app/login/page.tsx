@@ -56,12 +56,12 @@ export default function LoginPage() {
 
           <h2 className="font-display text-2xl font-semibold">Welcome back</h2>
           <p className="text-[14px] text-muted mt-1.5">
-            Sign in or create an account — it&apos;s the same step.
+            Sign in with your email and password.
           </p>
 
           <div className="mt-8">
             <Suspense
-              fallback={<div className="h-72 rounded-2xl bg-card-muted animate-pulse" />}
+              fallback={<div className="h-80 rounded-2xl bg-card-muted animate-pulse" />}
             >
               <LoginForm />
             </Suspense>

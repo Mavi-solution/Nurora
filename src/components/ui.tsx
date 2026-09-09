@@ -225,15 +225,22 @@ export function Field({
   children: ReactNode;
   required?: boolean;
 }) {
+  // The hint sits OUTSIDE the <label> on purpose. Nested inside, it becomes
+  // part of the field's accessible name ("Password At least 8 characters"),
+  // which is what screen readers announce. The asterisk is hidden for the
+  // same reason — `required` on the input already conveys it.
   return (
-    <label className="block">
-      <span className="block text-[13px] font-medium mb-1.5">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </span>
-      {children}
+    <div>
+      <label className="block">
+        <span
+          className={`block text-[13px] font-medium mb-1.5 ${required ? "is-required" : ""}`}
+        >
+          {label}
+        </span>
+        {children}
+      </label>
       {hint && <span className="block text-[12px] text-faint mt-1.5">{hint}</span>}
-    </label>
+    </div>
   );
 }
 

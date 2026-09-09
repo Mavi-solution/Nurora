@@ -14,6 +14,8 @@ export type NotifyChannel = "email" | "sms" | "whatsapp" | "in_app";
 export type Profile = {
   id: string;
   role: UserRole;
+  /** Admin powers, independent of role: a counsellor can also be an admin. */
+  is_admin: boolean;
   full_name: string;
   email: string | null;
   phone: string | null;

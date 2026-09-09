@@ -130,6 +130,14 @@
       radial-gradient(50% 70% at 90% 10%, color-mix(in oklab, var(--color-aurora-300) 40%, transparent), transparent 70%);
   }
 
+  /* Visual-only required marker: generated content stays out of the
+     field's accessible name, which `required` already conveys. */
+  .is-required::after {
+    content: "*";
+    color: #dc2626;
+    margin-left: 0.125rem;
+  }
+
   .animate-in-up {
     animation: in-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
   }

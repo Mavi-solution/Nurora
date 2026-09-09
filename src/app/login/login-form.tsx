@@ -1,242 +1,203 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Alert, Button, fieldClass } from "@/components/ui";
 
-type Mode = "email" | "phone";
-type Stage = "identify" | "verify";
+// Google only appears when it has actually been configured in Supabase.
+// Showing it otherwise just hands people a button that always fails.
+const GOOGLE_ENABLED = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === "true";
 
 export default function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/dashboard";
   const oauthError = params.get("error");
+  const justSignedUp = params.get("signedup") === "1";
 
-  const [mode, setMode] = useState<Mode>("email");
-  const [stage, setStage] = useState<Stage>("identify");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const supabase = createClient();
 
-  async function signInWithGoogle() {
-    setBusy(true);
-    setError(null);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-        queryParams: { access_type: "offline", prompt: "consent" },
-      },
-    });
-    if (error) {
-      setError(error.message);
-      setBusy(false);
-    }
-  }
-
-  async function sendCode(e: React.FormEvent) {
+  async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     setNotice(null);
 
-    const { error } =
-      mode === "email"
-        ? await supabase.auth.signInWithOtp({
-            email: email.trim(),
-            options: { shouldCreateUser: true },
-          })
-        : await supabase.auth.signInWithOtp({
-            phone: normalisePhone(phone),
-            options: { shouldCreateUser: true },
-          });
-
-    setBusy(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setStage("verify");
-    setNotice(
-      mode === "email"
-        ? `We sent a 6-digit code to ${email.trim()}.`
-        : `We sent a 6-digit code to ${normalisePhone(phone)}.`,
-    );
-  }
-
-  async function verifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-
-    const { error } =
-      mode === "email"
-        ? await supabase.auth.verifyOtp({
-            email: email.trim(),
-            token: code.trim(),
-            type: "email",
-          })
-        : await supabase.auth.verifyOtp({
-            phone: normalisePhone(phone),
-            token: code.trim(),
-            type: "sms",
-          });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
     if (error) {
-      setError(error.message);
+      setError(friendlyAuthError(error.message));
       setBusy(false);
       return;
     }
 
-    // Full reload so middleware and server components see the new cookie.
+    // Full navigation so middleware and server components see the cookie.
     router.replace(next);
     router.refresh();
   }
 
-  if (stage === "verify") {
-    return (
-      <form onSubmit={verifyCode} className="space-y-4">
-        {notice && <Alert tone="info">{notice}</Alert>}
-        {error && <Alert tone="error">{error}</Alert>}
+  async function resetPassword() {
+    if (!email.trim()) {
+      setError("Enter your email address first, then choose Forgot password.");
+      return;
+    }
 
-        <div>
-          <label htmlFor="code" className="block text-[13px] font-medium mb-1.5">
-            Verification code
-          </label>
-          <input
-            id="code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={6}
-            required
-            autoFocus
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            className={`${fieldClass} text-center text-2xl tracking-[0.5em] font-medium tabular-nums`}
-            placeholder="000000"
-          />
-        </div>
+    setBusy(true);
+    setError(null);
 
-        <Button type="submit" size="lg" className="w-full" disabled={busy || code.length < 6}>
-          {busy ? "Verifying…" : "Verify and continue"}
-        </Button>
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth/callback?next=/settings`,
+    });
 
-        <button
-          type="button"
-          onClick={() => {
-            setStage("identify");
-            setCode("");
-            setError(null);
-            setNotice(null);
-          }}
-          className="w-full text-[13px] text-muted hover:text-body transition-colors"
-        >
-          Use a different {mode === "email" ? "email" : "number"}
-        </button>
-      </form>
-    );
+    setBusy(false);
+    if (error) setError(error.message);
+    else setNotice(`If ${email.trim()} has an account, a reset link is on its way.`);
+  }
+
+  async function signInWithGoogle() {
+    setBusy(true);
+    setError(null);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      },
+    });
+
+    if (error) {
+      setError(error.message);
+      setBusy(false);
+    }
   }
 
   return (
     <div className="space-y-5">
+      {justSignedUp && (
+        <Alert tone="success">
+          Account created. Sign in with your email and password.
+        </Alert>
+      )}
       {(error || oauthError) && <Alert tone="error">{error ?? oauthError}</Alert>}
+      {notice && <Alert tone="info">{notice}</Alert>}
 
-      <Button
-        type="button"
-        variant="secondary"
-        size="lg"
-        className="w-full"
-        onClick={signInWithGoogle}
-        disabled={busy}
-      >
-        <GoogleMark />
-        Continue with Google
-      </Button>
+      <form onSubmit={signIn} className="space-y-4">
+        <div>
+          <label htmlFor="email" className="block text-[13px] font-medium mb-1.5">
+            Email address
+          </label>
+          <input
+            id="email"
+            type="email"
+            required
+            autoComplete="email"
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={fieldClass}
+            placeholder="you@example.com"
+          />
+        </div>
 
-      <div className="flex items-center gap-3">
-        <span className="h-px flex-1 bg-[var(--border)]" />
-        <span className="text-[12px] text-faint uppercase tracking-wider">or</span>
-        <span className="h-px flex-1 bg-[var(--border)]" />
-      </div>
-
-      <div className="inline-flex w-full rounded-full bg-card-muted border border-hairline p-1">
-        {(["email", "phone"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => {
-              setMode(m);
-              setError(null);
-            }}
-            className={`flex-1 h-8 rounded-full text-[13px] font-medium transition-colors ${
-              mode === m
-                ? "bg-card text-body shadow-sm"
-                : "text-muted hover:text-body"
-            }`}
-          >
-            {m === "email" ? "Email code" : "Phone code"}
-          </button>
-        ))}
-      </div>
-
-      <form onSubmit={sendCode} className="space-y-4">
-        {mode === "email" ? (
-          <div>
-            <label htmlFor="email" className="block text-[13px] font-medium mb-1.5">
-              Email address
+        <div>
+          <div className="flex items-baseline justify-between mb-1.5">
+            <label htmlFor="password" className="block text-[13px] font-medium">
+              Password
             </label>
-            <input
-              id="email"
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={fieldClass}
-              placeholder="you@example.com"
-            />
+            <button
+              type="button"
+              onClick={resetPassword}
+              className="text-[12px] text-muted hover:text-body transition-colors"
+            >
+              Forgot password?
+            </button>
           </div>
-        ) : (
-          <div>
-            <label htmlFor="phone" className="block text-[13px] font-medium mb-1.5">
-              Phone number
-            </label>
+          <div className="relative">
             <input
-              id="phone"
-              type="tel"
+              id="password"
+              type={showPassword ? "text" : "password"}
               required
-              autoComplete="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className={fieldClass}
-              placeholder="+91 98765 43210"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={`${fieldClass} pr-16`}
+              placeholder="••••••••"
             />
-            <span className="block text-[12px] text-faint mt-1.5">
-              Include your country code.
-            </span>
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-muted hover:text-body transition-colors"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
           </div>
-        )}
+        </div>
 
         <Button type="submit" size="lg" className="w-full" disabled={busy}>
-          {busy ? "Sending…" : "Send me a code"}
+          {busy ? "Signing in…" : "Sign in"}
         </Button>
       </form>
+
+      {GOOGLE_ENABLED && (
+        <>
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-[var(--border)]" />
+            <span className="text-[12px] text-faint uppercase tracking-wider">or</span>
+            <span className="h-px flex-1 bg-[var(--border)]" />
+          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            onClick={signInWithGoogle}
+            disabled={busy}
+          >
+            <GoogleMark />
+            Continue with Google
+          </Button>
+        </>
+      )}
+
+      <p className="text-[13px] text-muted text-center">
+        Don&apos;t have an account?{" "}
+        <Link
+          href="/signup"
+          className="text-brand-700 dark:text-brand-300 font-medium hover:underline"
+        >
+          Create one
+        </Link>
+      </p>
     </div>
   );
 }
 
-function normalisePhone(input: string): string {
-  const trimmed = input.replace(/[\s()-]/g, "");
-  return trimmed.startsWith("+") ? trimmed : `+${trimmed}`;
+/** Supabase's auth errors are terse; make the common ones readable. */
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("invalid login credentials")) {
+    return "That email and password don't match an account. Check them, or create an account.";
+  }
+  if (m.includes("email not confirmed")) {
+    return "Confirm your email address first — check your inbox for the link we sent.";
+  }
+  if (m.includes("rate limit") || m.includes("too many")) {
+    return "Too many attempts. Wait a minute and try again.";
+  }
+  return message;
 }
 
 function GoogleMark() {

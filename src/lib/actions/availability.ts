@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { describeDbError, fail, requireStaffProfile } from "./shared";
+import { describeDbError, fail, profileIsAdmin, requireStaffProfile } from "./shared";
 
 const ruleSchema = z.object({
   weekday: z.coerce.number().int().min(0).max(6),
@@ -18,7 +18,7 @@ export async function saveWeeklyAvailability(
   rules: unknown,
 ) {
   const profile = await requireStaffProfile();
-  if (profile.role !== "admin" && counsellorId !== profile.id) {
+  if (!profileIsAdmin(profile) && counsellorId !== profile.id) {
     return fail("You can only edit your own availability.");
   }
 
@@ -66,7 +66,7 @@ export async function addAvailabilityException(input: {
   reason?: string;
 }) {
   const profile = await requireStaffProfile();
-  if (profile.role !== "admin" && input.counsellorId !== profile.id) {
+  if (!profileIsAdmin(profile) && input.counsellorId !== profile.id) {
     return fail("You can only edit your own availability.");
   }
 

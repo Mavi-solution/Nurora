@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Alert, Avatar, Card, CardHeader } from "@/components/ui";
-import { setUserRole } from "@/lib/actions/profile";
+import { setUserAdmin, setUserRole } from "@/lib/actions/profile";
 import type { Profile, UserRole } from "@/lib/types";
 
 const ROLES: UserRole[] = ["client", "counsellor", "admin"];
@@ -28,11 +28,20 @@ export function TeamRoles({
     });
   }
 
+  function toggleAdmin(userId: string, next: boolean) {
+    setError(null);
+    startTransition(async () => {
+      const result = await setUserAdmin(userId, next);
+      if (!result.ok) setError(result.error);
+      else router.refresh();
+    });
+  }
+
   return (
     <Card>
       <CardHeader
         title="People"
-        description="Anyone who has signed in. Promote a counsellor to give them a lane on the schedule."
+        description="Anyone who has signed in. Counsellors get a lane on the schedule; admins can manage the whole practice — one person can be both."
       />
       {error && (
         <div className="px-5 pt-4">
@@ -54,6 +63,22 @@ export function TeamRoles({
                 {person.email ?? person.phone ?? "No contact details"}
               </p>
             </div>
+            <label
+              className={`flex items-center gap-1.5 text-[12px] ${
+                person.id === currentUserId ? "opacity-50" : "cursor-pointer"
+              }`}
+              title="Admin rights are independent of role, so a counsellor can also be an admin."
+            >
+              <input
+                type="checkbox"
+                checked={person.is_admin || person.role === "admin"}
+                disabled={pending || person.id === currentUserId}
+                onChange={(e) => toggleAdmin(person.id, e.target.checked)}
+                className="size-3.5 rounded accent-[var(--color-brand-600)] disabled:cursor-not-allowed"
+              />
+              Admin
+            </label>
+
             <select
               value={person.role}
               disabled={pending || person.id === currentUserId}

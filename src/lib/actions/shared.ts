@@ -52,6 +52,13 @@ export async function currentProfile(): Promise<Profile | null> {
 export async function requireStaffProfile(): Promise<Profile> {
   const profile = await currentProfile();
   if (!profile) throw new Error("Not signed in");
-  if (profile.role === "client") throw new Error("Staff access required");
+  if (profile.role === "client" && !profile.is_admin) {
+    throw new Error("Staff access required");
+  }
   return profile;
+}
+
+/** Admin is a flag, not only a role — see isAdmin() in lib/auth. */
+export function profileIsAdmin(profile: Profile): boolean {
+  return profile.is_admin || profile.role === "admin";
 }

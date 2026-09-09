@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, CardHeader, InvoiceBadge, Pill, StatusBadge } from "@/components/ui";
-import { requireSession } from "@/lib/auth";
+import { isAdmin, isStaff, requireSession } from "@/lib/auth";
 import { formatDateTime, formatDuration, formatMoney, formatTimeRange } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment, Client, Invoice, Profile, TimeEntry } from "@/lib/types";
@@ -43,7 +43,7 @@ export default async function AppointmentPage({
   const tracked = timeEntries.reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0);
   const running = timeEntries.find((e) => e.ended_at === null) ?? null;
   const tz = profile.timezone;
-  const staff = profile.role !== "client";
+  const staff = isStaff(profile);
 
   const scheduledMinutes = Math.round(
     (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
@@ -202,7 +202,7 @@ export default async function AppointmentPage({
             status={appt.status}
             running={running}
             isStaff={staff}
-            canRun={profile.role === "admin" || profile.id === appt.counsellor_id}
+            canRun={isAdmin(profile) || profile.id === appt.counsellor_id}
             counsellorNotes={appt.counsellor_notes ?? ""}
           />
         </div>

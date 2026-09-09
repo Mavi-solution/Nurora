@@ -40,11 +40,11 @@ export default async function LandingPage() {
             </p>
 
             <div className="mt-9 flex flex-wrap gap-3">
-              <ButtonLink href="/login" size="lg">
-                Open the schedule
+              <ButtonLink href="/signup" size="lg">
+                Create your account
               </ButtonLink>
               <ButtonLink href="/login" size="lg" variant="secondary">
-                Sign in with Google
+                Sign in
               </ButtonLink>
             </div>
           </div>

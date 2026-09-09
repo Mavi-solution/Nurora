@@ -1,10 +1,10 @@
 /**
  * End-to-end smoke test against the local Supabase stack.
  *
- * Signs in as a seeded counsellor using the real email-OTP flow (the code
- * is read from Mailpit, the local mail catcher), then walks the app:
- * check in, start a session, watch the timer, end it, and confirm the
- * invoice picked up the tracked time.
+ * Covers sign-up validation, password sign-in (including a rejected bad
+ * password), then walks the app as a counsellor-admin: check in, start a
+ * session, watch the timer, end it, and confirm the invoice picked up the
+ * tracked time.
  *
  * The walkthrough mutates data (it completes a session), so run it against
  * a freshly seeded database:
@@ -15,9 +15,11 @@ import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
 const APP = "http://localhost:3000";
-const MAILPIT = "http://127.0.0.1:54324";
-const EMAIL = "anisha@nurora.demo";
 const SHOTS = "screenshots";
+
+// Seeded counsellor who also holds admin rights.
+const EMAIL = "anisha@nurora.demo";
+const PASSWORD = "nurora1234";
 
 mkdirSync(SHOTS, { recursive: true });
 
@@ -29,22 +31,6 @@ function check(name, condition, detail = "") {
     failures += 1;
     console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`);
   }
-}
-
-async function latestOtp() {
-  // Poll Mailpit for the newest message and pull the 6-digit code.
-  for (let i = 0; i < 30; i += 1) {
-    const list = await fetch(`${MAILPIT}/api/v1/messages?limit=1`).then((r) => r.json());
-    const message = list.messages?.[0];
-    if (message) {
-      const full = await fetch(`${MAILPIT}/api/v1/message/${message.ID}`).then((r) => r.json());
-      const body = `${full.Text ?? ""}${full.HTML ?? ""}`;
-      const code = body.match(/\b(\d{6})\b/);
-      if (code) return code[1];
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error("No OTP arrived in Mailpit");
 }
 
 const browser = await chromium.launch();
@@ -62,22 +48,47 @@ try {
   check("hero copy renders", await page.getByText("is about to happen.").isVisible());
   await page.screenshot({ path: `${SHOTS}/01-landing.png`, fullPage: true });
 
-  step("Sign in with an email OTP");
-  await fetch(`${MAILPIT}/api/v1/messages`, { method: "DELETE" }).catch(() => {});
+  step("Sign-up page");
+  await page.goto(`${APP}/signup`, { waitUntil: "networkidle" });
+  check("signup form renders", await page.getByLabel("Full name").isVisible());
+  check("password field", await page.getByLabel("Password", { exact: true }).isVisible());
+  check("confirm password field", await page.getByLabel("Confirm password").isVisible());
+  await page.screenshot({ path: `${SHOTS}/02b-signup.png`, fullPage: true });
+
+  step("Sign-up rejects mismatched passwords");
+  await page.getByLabel("Full name").fill("Test Counsellor");
+  await page.getByLabel("Email address").fill(`new-${Date.now()}@nurora.test`);
+  await page.getByLabel("Password", { exact: true }).fill("supersecret1");
+  await page.getByLabel("Confirm password").fill("different1");
+  await page.getByRole("button", { name: /Create account/i }).click();
+  check("mismatch is caught", await page.getByText(/passwords don't match/i).isVisible());
+
+  step("Sign in with a password");
   await page.goto(`${APP}/login`, { waitUntil: "networkidle" });
-  check("Google button present", await page.getByRole("button", { name: /Continue with Google/i }).isVisible());
-  check("phone tab present", await page.getByRole("button", { name: "Phone code" }).isVisible());
+  check("email field", await page.getByLabel("Email address").isVisible());
+  check("password field", await page.getByLabel("Password").isVisible());
+  check("link to sign up", await page.getByRole("link", { name: /Create one/i }).isVisible());
+  check(
+    "no broken Google button",
+    (await page.getByRole("button", { name: /Continue with Google/i }).count()) === 0,
+  );
   await page.screenshot({ path: `${SHOTS}/02-login.png`, fullPage: true });
 
+  step("Wrong password is rejected");
   await page.getByLabel("Email address").fill(EMAIL);
-  await page.getByRole("button", { name: /Send me a code/i }).click();
-  await page.getByLabel("Verification code").waitFor({ timeout: 15000 });
+  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.waitForTimeout(1500);
+  check("bad credentials rejected", await page.getByText(/don't match an account/i).isVisible());
+  check("still on login", page.url().includes("/login"));
 
-  const code = await latestOtp();
-  console.log(`  (OTP from Mailpit: ${code})`);
-  await page.getByLabel("Verification code").fill(code);
-  await page.getByRole("button", { name: /Verify and continue/i }).click();
+  // The rejected sign-in above legitimately produces a 400 from Supabase.
+  // Clear the log here rather than filtering, so later 400s still surface.
+  errors.length = 0;
 
+  step("Correct password signs in");
+  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL(/\/(schedule|dashboard|onboarding)/, { timeout: 20000 });
   check("signed in", !page.url().includes("/login"), page.url());
 
@@ -167,6 +178,17 @@ try {
   step("Payments reflect the tracked session");
   await page.goto(`${APP}/payments`, { waitUntil: "networkidle" });
   check("invoice list rendered", await page.getByText(/NUR-\d+/).first().isVisible());
+
+  step("Counsellor-admin has admin powers");
+  await page.goto(`${APP}/settings`, { waitUntil: "networkidle" });
+  check("People section visible to admin", await page.getByText("People").first().isVisible());
+  check("admin checkboxes rendered", (await page.getByRole("checkbox", { name: "Admin" }).count()) > 0);
+  await page.goto(`${APP}/availability`, { waitUntil: "networkidle" });
+  check(
+    "admin can pick any counsellor's availability",
+    await page.getByLabel("Choose counsellor").isVisible(),
+  );
+  await page.screenshot({ path: `${SHOTS}/page-settings.png`, fullPage: true });
 
   step("Dark theme");
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });

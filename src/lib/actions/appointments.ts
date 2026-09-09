@@ -8,6 +8,7 @@ import {
   currentProfile,
   describeDbError,
   fail,
+  profileIsAdmin,
   requireStaffProfile,
 } from "./shared";
 
@@ -86,7 +87,7 @@ export async function startSession(appointmentId: string) {
   if (apptError) return fail(describeDbError(apptError.message, apptError.code));
   if (appt.status === "completed") return fail("This session is already completed.");
   if (appt.status === "cancelled") return fail("This session was cancelled.");
-  if (profile.role !== "admin" && appt.counsellor_id !== profile.id) {
+  if (!profileIsAdmin(profile) && appt.counsellor_id !== profile.id) {
     return fail("Only the assigned counsellor can start this session.");
   }
 
@@ -122,7 +123,7 @@ export async function endSession(appointmentId: string) {
     .maybeSingle();
 
   if (!entry) return fail("No timer is running for this session.");
-  if (profile.role !== "admin" && entry.counsellor_id !== profile.id) {
+  if (!profileIsAdmin(profile) && entry.counsellor_id !== profile.id) {
     return fail("Only the assigned counsellor can end this session.");
   }
 
@@ -276,7 +277,7 @@ export async function addManualTime(
 
   const { error } = await supabase.from("time_entries").insert({
     appointment_id: appointmentId,
-    counsellor_id: profile.role === "admin" ? appt.counsellor_id : profile.id,
+    counsellor_id: profileIsAdmin(profile) ? appt.counsellor_id : profile.id,
     started_at: startedAt.toISOString(),
     ended_at: endedAt.toISOString(),
     source: "manual",

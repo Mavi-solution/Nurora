@@ -6,6 +6,10 @@ every appointment.
 
 Next.js 15 (App Router) · Supabase (Postgres + Auth + Realtime) · Vercel.
 
+Sign-up and sign-in use **email and password**. The first account created
+becomes a **counsellor with admin rights** — a lane on the schedule plus
+full control of the practice.
+
 ---
 
 ## What it does
@@ -38,9 +42,12 @@ built-in SpeechRecognition — no external service, hidden where unsupported).
 **Roles**
 | Role | Sees |
 | --- | --- |
-| `admin` | Every counsellor's lane, all clients, payments, everyone's roles |
+| admin *(a flag)* | Every counsellor's lane, all clients, payments, everyone's roles |
 | `counsellor` | The shared board; starts/ends only their own sessions |
 | `client` | Their own sessions only, and can book into open slots |
+
+Admin is a **flag rather than a role**, so one person can run sessions as a
+counsellor *and* administer the practice.
 
 Clients are **records first**: staff create them with a name, age and contact
 details. A client only gets a login if they sign in with the same email or
@@ -58,21 +65,23 @@ Create a project, then in **SQL Editor** run:
 2. `supabase/seed.sql` — *optional* demo data (5 counsellors, clients, a day of
    sessions, and one session exactly 3 days out so the cron has something to send)
 
-**Authentication → Email Templates → Magic Link** — paste the contents of
-`supabase/templates/magic-link.html`.
+**Authentication → Sign In / Providers**:
 
-> This step is not optional. Nurora's sign-in screen asks for a **6-digit
-> code**, but Supabase's stock template emails only a magic *link* and never
-> renders `{{ .Token }}`. Without this template there is no code to type and
-> email sign-in cannot complete. (The local stack picks the template up
-> automatically from `supabase/config.toml`.)
+- **Email** is the only provider Nurora needs. Leave it enabled.
+- Turn **Confirm email** *off* if you want new accounts to reach the app
+  immediately. Left on, sign-up shows a "check your inbox" screen and the
+  account cannot sign in until the link is clicked — that is Supabase's
+  behaviour, not a bug in the app, and Nurora handles both cases.
+- Nurora ships with a **minimum password length of 8**; raise it under
+  Password Requirements if you want, the form will surface the error.
 
-Then **Authentication → Providers**:
-- **Google** — enable it, paste the client ID and secret from a Google Cloud
-  OAuth client whose redirect URI is
-  `https://<project>.supabase.co/auth/v1/callback`
-- **Email** — on by default; this powers the 6-digit email OTP
-- **Phone** — enable and connect an SMS provider (Twilio/MSG91) for phone OTP
+**Google sign-in is off by default.** The button is hidden unless you set
+`NEXT_PUBLIC_ENABLE_GOOGLE_AUTH=true`, because an unconfigured provider
+gives users a button that always fails. To turn it on: create a Google
+Cloud OAuth client whose redirect URI is
+`https://<project>.supabase.co/auth/v1/callback`, paste the client ID and
+secret into **Authentication → Providers → Google**, then set that
+environment variable.
 
 In **Authentication → URL Configuration**, add your site URL and
 `https://your-app.vercel.app/auth/callback` as a redirect URL.
@@ -94,8 +103,21 @@ npm install
 npm run dev
 ```
 
-**The first account to sign in becomes the admin.** Everyone after that starts
-as a client; promote them from **Settings → People**.
+**The first account to sign up becomes a counsellor with admin rights.** It
+gets its own lane on the schedule and can manage everyone else. Later
+sign-ups choose Counsellor or Client on the form and are never admins; an
+existing admin grants that from **Settings → People**, where the Admin
+checkbox is independent of role — so a counsellor can be an admin too.
+
+Signing in with the demo seed:
+
+| Email | Password | |
+| --- | --- | --- |
+| `anisha@nurora.demo` | `nurora1234` | counsellor **with admin rights** |
+| `shefrin@nurora.demo` | `nurora1234` | counsellor |
+| `ramya@nurora.demo` | `nurora1234` | counsellor |
+| `mahek@nurora.demo` | `nurora1234` | counsellor |
+| `saranya@nurora.demo` | `nurora1234` | counsellor |
 
 ### 4. Deploy
 
@@ -118,14 +140,20 @@ npm run typecheck    # tsc --noEmit
 npm run build        # production build
 npm run test:logic   # timezone, slot and reminder arithmetic (no services needed)
 npm run test:e2e     # full browser walkthrough against a local Supabase stack
+npm run test:signup  # first-account bootstrap: counsellor + admin, on an empty DB
 ```
 
-`test:e2e` needs Docker and the local stack (`npx supabase start`). It signs in
-through the real email-OTP flow — reading the code out of Mailpit, the local
-mail catcher — then checks in, starts a session, watches the timer tick, ends
-it, and confirms the tracked minutes reached the invoice. It resets the
-database first, since the walkthrough completes a session. Screenshots of every
-step land in `screenshots/`.
+`test:e2e` needs Docker and the local stack (`npx supabase start`). It checks
+sign-up validation, rejects a wrong password, signs in properly, then checks
+in, starts a session, watches the timer tick, ends it, and confirms the tracked
+minutes reached the invoice. It resets the database first, since the
+walkthrough completes a session. Screenshots of every step land in
+`screenshots/`.
+
+`test:signup` empties the database and signs up through the UI, asserting the
+first account really is a counsellor with `is_admin` set, lands on the
+schedule, gets a default working week, and that a *second* sign-up is not
+made an admin.
 
 The logic checks cover DST transitions in both directions, month and year
 boundaries, partial-day blocks, and the case where a late-evening IST session

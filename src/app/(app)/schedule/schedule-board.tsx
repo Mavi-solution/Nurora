@@ -426,7 +426,7 @@ function LaneCard({
   const [showAllSlots, setShowAllSlots] = useState(false);
 
   const booked = appointments.filter((a) => a.status !== "cancelled").length;
-  const canRun = viewer.role === "admin" || viewer.id === counsellor.id;
+  const canRun = viewer.is_admin || viewer.role === "admin" || viewer.id === counsellor.id;
 
   const VISIBLE_SLOTS = 4;
   const hiddenSlots = Math.max(0, openSlots.length - VISIBLE_SLOTS);

@@ -1,4 +1,4 @@
-import { requireSession } from "@/lib/auth";
+import { isAdmin, requireSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import { SettingsForm } from "./settings-form";
@@ -11,7 +11,7 @@ export default async function SettingsPage() {
   const { profile } = await requireSession();
 
   let people: Profile[] = [];
-  if (profile.role === "admin") {
+  if (isAdmin(profile)) {
     const supabase = await createClient();
     const { data } = await supabase
       .from("profiles")
@@ -32,7 +32,7 @@ export default async function SettingsPage() {
 
       <SettingsForm profile={profile} />
 
-      {profile.role === "admin" && <TeamRoles people={people} currentUserId={profile.id} />}
+      {isAdmin(profile) && <TeamRoles people={people} currentUserId={profile.id} />}
     </div>
   );
 }

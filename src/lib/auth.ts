@@ -44,12 +44,21 @@ export async function requireStaff(): Promise<Session> {
 
 export async function requireAdmin(): Promise<Session> {
   const session = await requireSession();
-  if (session.profile.role !== "admin") redirect("/schedule");
+  if (!isAdmin(session.profile)) redirect("/schedule");
   return session;
 }
 
-export function isStaff(profile: Profile): boolean {
-  return profile.role === "counsellor" || profile.role === "admin";
+/**
+ * Admin is a flag rather than a role, so one person can run sessions as a
+ * counsellor and still administer the practice. The legacy `admin` role
+ * keeps working for back-office accounts.
+ */
+export function isAdmin(profile: Pick<Profile, "role" | "is_admin">): boolean {
+  return profile.is_admin || profile.role === "admin";
+}
+
+export function isStaff(profile: Pick<Profile, "role" | "is_admin">): boolean {
+  return profile.role === "counsellor" || profile.role === "admin" || profile.is_admin;
 }
 
 /** Absolute origin, used in emails and OAuth redirects. */

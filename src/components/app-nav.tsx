@@ -36,7 +36,7 @@ export function AppNav({
     setOpen(false);
   }, [pathname]);
 
-  const staff = profile.role === "counsellor" || profile.role === "admin";
+  const staff = profile.role === "counsellor" || profile.role === "admin" || profile.is_admin;
 
   const items: NavItem[] = staff
     ? [

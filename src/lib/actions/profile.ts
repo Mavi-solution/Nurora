@@ -29,8 +29,8 @@ export async function completeOnboarding(formData: FormData) {
   const v = parsed.data;
   const supabase = await createClient();
 
-  // An existing admin keeps their role — onboarding never demotes.
-  const role = profile.role === "admin" ? "admin" : v.role;
+  // An admin always keeps a counsellor lane — onboarding never demotes.
+  const role = profile.is_admin ? "counsellor" : v.role;
 
   const { error } = await supabase
     .from("profiles")
@@ -135,14 +135,56 @@ export async function updateSettings(formData: FormData) {
 }
 
 /** Admin-only: change someone's role. */
-export async function setUserRole(userId: string, role: "client" | "counsellor" | "admin") {
+export async function setUserRole(
+  userId: string,
+  role: "client" | "counsellor" | "admin",
+) {
   const profile = await currentProfile();
-  if (!profile || profile.role !== "admin") return fail("Admin access required.");
+  if (!profile || !(profile.is_admin || profile.role === "admin")) {
+    return fail("Admin access required.");
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.from("profiles").update({ role }).eq("id", userId);
   if (error) return fail(describeDbError(error.message, error.code));
 
-  revalidatePath("/settings/team");
+  revalidatePath("/settings");
+  revalidatePath("/schedule");
+  return { ok: true as const };
+}
+
+/** Admin-only: grant or revoke admin rights. */
+export async function setUserAdmin(userId: string, isAdmin: boolean) {
+  const profile = await currentProfile();
+  if (!profile || !(profile.is_admin || profile.role === "admin")) {
+    return fail("Admin access required.");
+  }
+
+  if (userId === profile.id) {
+    return fail("You cannot change your own admin rights.");
+  }
+
+  const supabase = await createClient();
+
+  // Never leave the practice without an admin.
+  if (!isAdmin) {
+    const { count } = await supabase
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .or("is_admin.eq.true,role.eq.admin");
+
+    if ((count ?? 0) <= 1) {
+      return fail("There must always be at least one admin.");
+    }
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ is_admin: isAdmin })
+    .eq("id", userId);
+
+  if (error) return fail(describeDbError(error.message, error.code));
+
+  revalidatePath("/settings");
   return { ok: true as const };
 }

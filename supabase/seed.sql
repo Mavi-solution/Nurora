@@ -5,33 +5,39 @@
 -- day of appointments so the schedule board looks alive immediately.
 -- Run it in the Supabase SQL editor AFTER 0001_init.sql.
 --
--- Demo password for every seeded account: nurora1234
--- (Sign in with Google/OTP instead for real accounts — these exist so
---  the board is not empty on first load.)
+-- Sign in with any of these:
+--
+--   anisha@nurora.demo   / nurora1234   <- counsellor WITH admin rights
+--   shefrin@nurora.demo  / nurora1234
+--   ramya@nurora.demo    / nurora1234
+--   mahek@nurora.demo    / nurora1234
+--   saranya@nurora.demo  / nurora1234
 -- =====================================================================
 
 create extension if not exists pgcrypto;
 
 do $$
 declare
+  -- name, email, role, is_admin
   staff        text[][] := array[
-    ['Anisha',  'anisha@nurora.demo',  'counsellor'],
-    ['Shefrin', 'shefrin@nurora.demo', 'counsellor'],
-    ['Ramya',   'ramya@nurora.demo',   'counsellor'],
-    ['Mahek',   'mahek@nurora.demo',   'counsellor'],
-    ['Saranya', 'saranya@nurora.demo', 'counsellor'],
-    ['Solulu Admin', 'admin@nurora.demo', 'admin']
+    ['Anisha',  'anisha@nurora.demo',  'counsellor', 'true'],
+    ['Shefrin', 'shefrin@nurora.demo', 'counsellor', 'false'],
+    ['Ramya',   'ramya@nurora.demo',   'counsellor', 'false'],
+    ['Mahek',   'mahek@nurora.demo',   'counsellor', 'false'],
+    ['Saranya', 'saranya@nurora.demo', 'counsellor', 'false']
   ];
   i            integer;
   uid          uuid;
   person_name  text;
   person_email text;
   person_role  text;
+  person_admin boolean;
 begin
   for i in 1 .. array_length(staff, 1) loop
     person_name  := staff[i][1];
     person_email := staff[i][2];
     person_role  := staff[i][3];
+    person_admin := staff[i][4]::boolean;
 
     -- Skip if this demo account already exists.
     select id into uid from auth.users where email = person_email;
@@ -67,6 +73,7 @@ begin
     update public.profiles
        set full_name = person_name,
            role      = person_role::user_role,
+           is_admin  = person_admin,
            onboarded = true,
            timezone  = 'Asia/Kolkata',
            currency  = 'INR',

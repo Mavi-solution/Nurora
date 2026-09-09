@@ -8,7 +8,7 @@ import type { Profile } from "@/lib/types";
 
 export function OnboardingForm({ profile }: { profile: Profile }) {
   const [role, setRole] = useState<"counsellor" | "client">(
-    profile.role === "client" ? "client" : "counsellor",
+    profile.role === "client" && !profile.is_admin ? "client" : "counsellor",
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -37,7 +37,7 @@ export function OnboardingForm({ profile }: { profile: Profile }) {
       <form action={onSubmit} className="space-y-5">
         {error && <Alert tone="error">{error}</Alert>}
 
-        {profile.role === "admin" && (
+        {profile.is_admin && (
           <Alert tone="info">
             You&apos;re the first account here, so you have admin access.
           </Alert>
@@ -54,7 +54,7 @@ export function OnboardingForm({ profile }: { profile: Profile }) {
           />
         </Field>
 
-        {profile.role !== "admin" && (
+        {!profile.is_admin && (
           <div>
             <span className="block text-[13px] font-medium mb-1.5">
               How will you use Nurora?
@@ -88,7 +88,7 @@ export function OnboardingForm({ profile }: { profile: Profile }) {
             <input type="hidden" name="role" value={role} />
           </div>
         )}
-        {profile.role === "admin" && <input type="hidden" name="role" value="counsellor" />}
+        {profile.is_admin && <input type="hidden" name="role" value="counsellor" />}
 
         <Field label="Timezone" hint="Session times and reminders use this.">
           <select name="timezone" defaultValue={detected} className={fieldClass}>
