@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { misprefixedVars } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
@@ -41,15 +42,27 @@ export async function GET() {
   };
 
   if (!url || !anon) {
+    const misprefixed = misprefixedVars();
+
     return NextResponse.json(
       {
         ok: false,
-        problem: "Supabase environment variables are missing from this build.",
-        fix:
+        problem:
+          misprefixed.length > 0
+            ? `Set under the wrong name: ${misprefixed.join("; ")}.`
+            : "Supabase environment variables are missing from this build.",
+        fix: misprefixed.length > 0
+          ? "The NEXT_PUBLIC_ prefix is what tells Next.js to include the " +
+            "value in the browser bundle, and the realtime features (team " +
+            "chat, notification bell) run in the browser. Rename them in " +
+            "Vercel and redeploy. SUPABASE_SERVICE_ROLE_KEY is correct " +
+            "WITHOUT a prefix — it must never reach the browser."
+          :
           "Set them in Vercel (Settings -> Environment Variables) for the " +
           "environment you are deploying, then REDEPLOY — NEXT_PUBLIC_* " +
           "values are baked into the bundle at build time, so adding them " +
           "without a rebuild changes nothing.",
+        misprefixed,
         ...checks,
       },
       { status: 503 },

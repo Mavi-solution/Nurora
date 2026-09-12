@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { supabaseConfigured } from "@/lib/supabase/env";
+import { misprefixedVars, supabaseConfigured } from "@/lib/supabase/env";
 
 // /api/health must be reachable without a session: it exists to
 // diagnose deployments that cannot authenticate anyone yet.
@@ -25,10 +25,15 @@ export async function middleware(request: NextRequest) {
   // the error page itself. Fail with something a human can act on, and
   // let the request through so the app can render its own message.
   if (!supabaseConfigured()) {
+    const misprefixed = misprefixedVars();
     console.error(
-      "[nurora] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY " +
-        "are not set. Set them in your deployment's environment variables " +
-        "and redeploy — see DEPLOY.md.",
+      misprefixed.length > 0
+        ? `[nurora] ${misprefixed.join("; ")}. The NEXT_PUBLIC_ prefix is ` +
+          "what makes the value available to the browser, which the " +
+          "realtime features need. Rename and redeploy — see DEPLOY.md."
+        : "[nurora] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY " +
+          "are not set. Set them in your deployment's environment variables " +
+          "and redeploy — see DEPLOY.md.",
     );
     return NextResponse.next({ request });
   }
