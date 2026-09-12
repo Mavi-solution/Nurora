@@ -12,3 +12,15 @@ export function createAdminClient() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
+
+/**
+ * Same client, but null instead of throwing when the service-role key is
+ * absent. Transactional notifications degrade to "not sent" on a
+ * deployment without Twilio/Supabase service credentials — they must
+ * never take a booking down with them.
+ */
+export function createAdminClientOrNull() {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null;
+  return createAdminClient();
+}
