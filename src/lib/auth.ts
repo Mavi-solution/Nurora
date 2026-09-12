@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "./supabase/server";
-import type { Profile } from "./types";
+import type { Profile, UserRole } from "./types";
 
 export type Session = {
   userId: string;
@@ -82,6 +82,21 @@ export function canManagePractice(
 ): boolean {
   return profile.role === "admin" || profile.role === "support" || profile.is_admin;
 }
+
+/**
+ * Roles that can hold counselling sessions, and therefore appear in the
+ * roster, get a lane on the schedule, and are bookable.
+ *
+ * Deliberately BOTH 'counsellor' and the legacy 'admin' role: admin is
+ * meant to be a flag rather than a role, so a practising counsellor who
+ * is given the admin role must not silently drop out of the practice.
+ * 'support' (reception) and 'client' are excluded — they never counsel.
+ *
+ * Every query that lists counsellors uses this. Filtering on
+ * role = 'counsellor' by hand is what made a promoted counsellor vanish
+ * from nine screens at once.
+ */
+export const CLINICIAN_ROLES: UserRole[] = ["counsellor", "admin"];
 
 /** Absolute origin, used in emails and OAuth redirects. */
 export function appUrl(): string {

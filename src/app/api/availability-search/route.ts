@@ -1,3 +1,4 @@
+import { CLINICIAN_ROLES } from "@/lib/auth";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
     .select(
       "id, full_name, timezone, default_duration_minutes, default_session_fee_cents, currency, languages",
     )
-    .eq("role", "counsellor")
+    .in("role", CLINICIAN_ROLES)
     .eq("is_active", true)
     .order("full_name");
 

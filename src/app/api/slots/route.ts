@@ -1,3 +1,4 @@
+import { CLINICIAN_ROLES } from "@/lib/auth";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
     .from("profiles")
     .select("id, timezone")
     .eq("id", counsellorId)
-    .eq("role", "counsellor")
+    .in("role", CLINICIAN_ROLES)
     .maybeSingle();
 
   if (!counsellor) {

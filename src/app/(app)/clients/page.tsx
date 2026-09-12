@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Avatar, Card, EmptyState, Pill } from "@/components/ui";
-import { requireStaff } from "@/lib/auth";
+import { CLINICIAN_ROLES, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { Client, CounsellorSummary } from "@/lib/types";
 import { NewClientButton } from "./new-client";
@@ -30,7 +30,7 @@ export default async function ClientsPage({
     supabase
       .from("profiles")
       .select("id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency")
-      .eq("role", "counsellor")
+      .in("role", CLINICIAN_ROLES)
       .order("full_name"),
   ]);
 

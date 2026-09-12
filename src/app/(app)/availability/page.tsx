@@ -1,4 +1,4 @@
-import { canManagePractice, requireStaff } from "@/lib/auth";
+import { CLINICIAN_ROLES, canManagePractice, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { AvailabilityException, AvailabilityRule, CounsellorSummary } from "@/lib/types";
 import { AvailabilityEditor } from "./availability-editor";
@@ -18,7 +18,7 @@ export default async function AvailabilityPage({
   const { data: counsellorRows } = await supabase
     .from("profiles")
     .select("id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency")
-    .eq("role", "counsellor")
+    .in("role", CLINICIAN_ROLES)
     .eq("is_active", true)
     .order("full_name");
 

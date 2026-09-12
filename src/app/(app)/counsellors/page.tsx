@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Avatar, Card, EmptyState, Pill } from "@/components/ui";
 import { ButtonLink } from "@/components/ui";
-import { canManagePractice, requireStaff } from "@/lib/auth";
+import { CLINICIAN_ROLES, canManagePractice, requireStaff } from "@/lib/auth";
 import { formatMoney } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, Specialism } from "@/lib/types";
@@ -21,7 +21,7 @@ export default async function CounsellorsPage() {
       supabase
         .from("profiles")
         .select("*")
-        .eq("role", "counsellor")
+        .in("role", CLINICIAN_ROLES)
         .order("is_active", { ascending: false })
         .order("full_name"),
       supabase.from("specialisms").select("*").eq("is_active", true).order("sort_order"),
@@ -49,6 +49,7 @@ export default async function CounsellorsPage() {
             Counsellors
           </h1>
           <p className="text-[13px] text-muted mt-0.5">
+            {counsellors.length} on the roster ·{" "}
             {counsellors.filter((c) => c.is_active).length} taking bookings · what
             they specialise in and the languages they work in
           </p>

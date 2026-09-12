@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Avatar, Card, CardHeader, EmptyState, InvoiceBadge, Pill, StatusBadge } from "@/components/ui";
-import { requireStaff } from "@/lib/auth";
+import { CLINICIAN_ROLES, requireStaff } from "@/lib/auth";
 import { formatDateTime, formatDuration, formatMoney } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment, Client, Invoice } from "@/lib/types";
@@ -39,7 +39,7 @@ export default async function ClientPage({
       supabase
         .from("profiles")
         .select("id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency")
-        .eq("role", "counsellor")
+        .in("role", CLINICIAN_ROLES)
         .order("full_name"),
     ]);
 
