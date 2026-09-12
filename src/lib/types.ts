@@ -11,6 +11,10 @@ export type AppointmentStatus =
 export type InvoiceStatus = "draft" | "unpaid" | "paid" | "refunded" | "waived";
 export type TimeEntrySource = "timer" | "manual";
 export type NotifyChannel = "email" | "sms" | "whatsapp" | "in_app";
+export type SessionMode = "online" | "offline" | "offline_walk_in";
+export type AttachmentKind = "none" | "recording" | "voice_note" | "note";
+export type InterestStatus = "scheduled" | "converted" | "dropped";
+export type ClientType = "new" | "follow_up";
 
 export type Profile = {
   id: string;
@@ -131,6 +135,30 @@ export type Appointment = {
   cancelled_by: string | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
+  mode: SessionMode;
+  client_type: ClientType;
+  tag_ids: string[];
+  attachment: AttachmentKind;
+  attachment_note: string | null;
+  attachment_path: string | null;
+  attachment_expires_at: string | null;
+  /* --- the five milestones (see business/milestones.ts) --------------
+   * Step 3 has no column: it is derived from `status`, so the tracker
+   * can never disagree with what the session timer actually did. */
+  message_sent_at: string | null;
+  call_made_at: string | null;
+  nubill_at: string | null;
+  persona_at: string | null;
+  /** Advance owed upfront, from the tiered rule in business/billing.ts. */
+  advance_cents: number;
+  advance_paid_at: string | null;
+  advance_proof_path: string | null;
+  /** 'moved' once superseded by rescheduled_to_id; null otherwise. */
+  reschedule_status: "moved" | null;
+  /** The appointment that replaced this one. */
+  rescheduled_to_id: string | null;
+  /** The appointment this one replaced. */
+  rescheduled_from_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -182,6 +210,120 @@ export type TeamMessage = {
   author?: Pick<Profile, "id" | "full_name" | "avatar_url" | "role"> | null;
 };
 
+/** One side of a 1:1 staff thread. Threads are identified by the pair. */
+export type DirectMessage = {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+};
+
+/** A colleague you can message, plus the state of your thread with them. */
+export type StaffMate = Pick<
+  Profile,
+  "id" | "full_name" | "avatar_url" | "role" | "is_admin"
+> & {
+  unread: number;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+};
+
+/** One line on the clinic's price list. A service has ONE price. */
+export type Service = {
+  id: string;
+  name: string;
+  category: string | null;
+  price_cents: number;
+  currency: string;
+  duration_minutes: number;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A short label shown to the counsellor under the client's name. */
+export type AppointmentTag = {
+  id: string;
+  label: string;
+  abbreviation: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+/**
+ * A lead who has not paid. Deliberately holds no slot — see migration
+ * 0008: it lives outside `appointments` so the overlap constraint
+ * cannot reserve a time for it.
+ */
+export type Interest = {
+  id: string;
+  client_id: string | null;
+  client_type: ClientType;
+  full_name: string;
+  gender: string | null;
+  age: number | null;
+  whatsapp: string | null;
+  service_id: string | null;
+  counsellor_id: string | null;
+  on_date: string | null;
+  mode: SessionMode;
+  tag_ids: string[];
+  attachment: AttachmentKind;
+  attachment_note: string | null;
+  attachment_path: string | null;
+  attachment_expires_at: string | null;
+  status: InterestStatus;
+  notes: string | null;
+  converted_appointment_id: string | null;
+  converted_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InterestRow = Interest & {
+  service: Pick<Service, "id" | "name" | "price_cents" | "currency"> | null;
+  counsellor: Pick<Profile, "id" | "full_name" | "avatar_url"> | null;
+};
+
+export type LeaveKind = "planned" | "sick" | "unpaid" | "auto";
+
+/** An org-wide closure. Applies to everyone. */
+export type Holiday = {
+  id: string;
+  on_date: string;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+/** A counsellor's own planned day off, counted against the month's quota. */
+export type WeekOff = {
+  id: string;
+  staff_id: string;
+  on_date: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/** Any other day off, including one auto-marked from a missed check-in. */
+export type Leave = {
+  id: string;
+  staff_id: string;
+  on_date: string;
+  kind: LeaveKind;
+  reason: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type Notification = {
   id: string;
   user_id: string;
@@ -189,6 +331,8 @@ export type Notification = {
   kind: string;
   title: string;
   body: string;
+  /** In-app path to open. Takes precedence over appointment_id. */
+  link: string | null;
   read_at: string | null;
   created_at: string;
 };

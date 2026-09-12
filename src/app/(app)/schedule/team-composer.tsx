@@ -2,41 +2,42 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { postTeamMessage } from "@/lib/actions/team";
+import { useDictation } from "@/components/dictation";
+import { postTeamMessage, sendDirectMessage } from "@/lib/actions/team";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, TeamMessage } from "@/lib/types";
+import { Avatar } from "@/components/ui";
+import type { Profile, StaffMate, TeamMessage } from "@/lib/types";
 
 /**
  * The floating bar: team chat, a Quick Book shortcut and dictation.
+ *
+ * The recipient picker is what makes this more than a broadcast box — a
+ * counsellor mid-clinic can fire a private line to the booking desk or
+ * an admin without leaving the schedule.
+ *
  * Dictation uses the browser's built-in SpeechRecognition — no external
  * service, and the button simply hides where it is unsupported.
  */
 export function TeamComposer({
   profile,
+  mates,
   onQuickBook,
 }: {
   profile: Profile;
+  mates: StaffMate[];
   onQuickBook: () => void;
 }) {
   const [body, setBody] = useState("");
+  const [recipientId, setRecipientId] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
   const [recent, setRecent] = useState<TeamMessage[]>([]);
   const [showRecent, setShowRecent] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [speechSupported, setSpeechSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const supabase = createClient();
-
-  useEffect(() => {
-    const Ctor =
-      typeof window !== "undefined"
-        ? window.SpeechRecognition ?? window.webkitSpeechRecognition
-        : undefined;
-    setSpeechSupported(Boolean(Ctor));
-  }, []);
 
   // Keep the last few team messages live above the composer.
   useEffect(() => {
@@ -68,64 +69,43 @@ export function TeamComposer({
     };
   }, [supabase]);
 
-  function toggleDictation() {
-    if (listening) {
-      recognitionRef.current?.stop();
-      return;
-    }
+  const dictation = useDictation({
+    onText: setBody,
+    baseline: () => body,
+  });
 
-    const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!Ctor) return;
-
-    const recognition = new Ctor();
-    recognition.lang = navigator.language || "en-IN";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    const baseline = body;
-
-    recognition.onresult = (event) => {
-      let transcript = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        transcript += event.results[i][0].transcript;
-      }
-      setBody(`${baseline}${baseline ? " " : ""}${transcript}`.trimStart());
-    };
-    recognition.onerror = (event) => {
-      setError(
-        event.error === "not-allowed"
-          ? "Microphone permission was denied."
-          : "Dictation failed. Try typing instead.",
-      );
-      setListening(false);
-    };
-    recognition.onend = () => {
-      setListening(false);
-      textareaRef.current?.focus();
-    };
-
-    recognitionRef.current = recognition;
-    setError(null);
-    setListening(true);
-    recognition.start();
-  }
+  const recipient = mates.find((m) => m.id === recipientId) ?? null;
 
   function send() {
     const text = body.trim();
     if (!text) return;
 
     setError(null);
+    setSent(null);
     startTransition(async () => {
-      const result = await postTeamMessage(text);
-      if (!result.ok) setError(result.error);
-      else setBody("");
+      const result = recipient
+        ? await sendDirectMessage(recipient.id, text)
+        : await postTeamMessage(text);
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setBody("");
+      // A DM does not appear in the channel strip above, so confirm it
+      // went somewhere rather than leaving the box to just empty itself.
+      if (recipient) {
+        setSent(`Sent to ${recipient.full_name || "your colleague"}`);
+        setTimeout(() => setSent(null), 2600);
+      }
     });
   }
 
   return (
     <div className="fixed bottom-0 inset-x-0 lg:pl-64 z-30 pointer-events-none">
       <div className="mx-auto max-w-2xl px-4 pb-4 pointer-events-auto">
-        {showRecent && recent.length > 0 && (
+        {showRecent && !recipient && recent.length > 0 && (
           <div className="mb-2 rounded-2xl border border-hairline bg-card shadow-card overflow-hidden animate-in-up">
             <div className="px-4 py-2.5 border-b border-hairline flex items-center justify-between">
               <span className="text-[12px] font-semibold">Team channel</span>
@@ -155,10 +135,82 @@ export function TeamComposer({
           </div>
         )}
 
-        {error && (
+        {(error || dictation.error) && (
           <p className="mb-2 text-[12px] text-red-600 bg-card border border-hairline rounded-xl px-3 py-2">
-            {error}
+            {error ?? dictation.error}
           </p>
+        )}
+
+        {sent && (
+          <p className="mb-2 text-[12px] text-emerald-700 dark:text-emerald-300 bg-card border border-hairline rounded-xl px-3 py-2">
+            {sent}
+          </p>
+        )}
+
+        {showPicker && (
+          <div className="mb-2 rounded-2xl border border-hairline bg-card shadow-card overflow-hidden animate-in-up">
+            <div className="px-4 py-2.5 border-b border-hairline">
+              <span className="text-[12px] font-semibold">Send to</span>
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setRecipientId(null);
+                  setShowPicker(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left border-b border-hairline last:border-0 transition-colors ${
+                  recipientId === null ? "bg-brand-50 dark:bg-brand-400/10" : "hover:bg-card-muted"
+                }`}
+              >
+                <span className="size-7 rounded-full bg-brand-100 text-brand-800 dark:bg-brand-400/15 dark:text-brand-200 grid place-items-center shrink-0">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-5.5A8 8 0 1 1 21 12Z" />
+                  </svg>
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium">Team channel</span>
+                  <span className="block text-[12px] text-muted">Everyone on shift</span>
+                </span>
+              </button>
+
+              {mates.map((mate) => (
+                <button
+                  key={mate.id}
+                  type="button"
+                  onClick={() => {
+                    setRecipientId(mate.id);
+                    setShowPicker(false);
+                    textareaRef.current?.focus();
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-left border-b border-hairline last:border-0 transition-colors ${
+                    recipientId === mate.id ? "bg-brand-50 dark:bg-brand-400/10" : "hover:bg-card-muted"
+                  }`}
+                >
+                  <Avatar name={mate.full_name || "?"} url={mate.avatar_url} size={28} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium truncate">
+                      {mate.full_name || "Unnamed"}
+                    </span>
+                    <span className="block text-[12px] text-muted truncate">
+                      {describeRole(mate)}
+                    </span>
+                  </span>
+                  {mate.unread > 0 && (
+                    <span className="min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-brand-600 text-white text-[10px] font-semibold grid place-items-center tabular-nums shrink-0">
+                      {mate.unread > 9 ? "9+" : mate.unread}
+                    </span>
+                  )}
+                </button>
+              ))}
+
+              {mates.length === 0 && (
+                <p className="px-4 py-5 text-[12px] text-muted text-center">
+                  No colleagues to message yet.
+                </p>
+              )}
+            </div>
+          </div>
         )}
 
         <div className="rounded-[1.75rem] border border-hairline bg-card/95 backdrop-blur-xl shadow-card p-2">
@@ -172,11 +224,24 @@ export function TeamComposer({
                 e.preventDefault();
                 send();
               }
-              if (e.key === "Escape") setShowRecent(false);
+              if (e.key === "Escape") {
+                setShowRecent(false);
+                setShowPicker(false);
+              }
             }}
             rows={1}
-            placeholder={listening ? "Listening…" : "Message the team…"}
-            aria-label="Message the team"
+            placeholder={
+              dictation.listening
+                ? "Listening…"
+                : recipient
+                  ? `Message ${recipient.full_name || "your colleague"}…`
+                  : "Message the team…"
+            }
+            aria-label={
+              recipient
+                ? `Message ${recipient.full_name}`
+                : "Message the team"
+            }
             className="w-full resize-none bg-transparent px-3 py-2 text-sm focus:outline-none max-h-28"
           />
 
@@ -195,6 +260,32 @@ export function TeamComposer({
 
             <button
               type="button"
+              onClick={() => setShowPicker((v) => !v)}
+              aria-label="Choose who to message"
+              aria-expanded={showPicker}
+              className={`inline-flex items-center gap-1.5 h-8 pl-2.5 pr-3 rounded-full border text-[13px] font-medium transition-colors max-w-44 ${
+                recipient
+                  ? "border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-400/30 dark:bg-brand-400/10 dark:text-brand-100"
+                  : "border-hairline text-muted hover:text-body hover:bg-card-muted"
+              }`}
+            >
+              {recipient ? (
+                <Avatar name={recipient.full_name || "?"} url={recipient.avatar_url} size={18} />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-5.5A8 8 0 1 1 21 12Z" />
+                </svg>
+              )}
+              <span className="truncate">
+                {recipient ? recipient.full_name.split(" ")[0] || "Colleague" : "Team"}
+              </span>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+
+            <button
+              type="button"
               onClick={onQuickBook}
               className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full border border-hairline text-[13px] font-medium text-muted hover:text-body hover:bg-card-muted transition-colors"
             >
@@ -203,14 +294,14 @@ export function TeamComposer({
 
             <div className="flex-1" />
 
-            {speechSupported && (
+            {dictation.supported && (
               <button
                 type="button"
-                onClick={toggleDictation}
-                aria-label={listening ? "Stop dictation" : "Dictate a message"}
-                aria-pressed={listening}
+                onClick={dictation.toggle}
+                aria-label={dictation.listening ? "Stop dictation" : "Dictate a message"}
+                aria-pressed={dictation.listening}
                 className={`size-8 grid place-items-center rounded-full transition-colors ${
-                  listening
+                  dictation.listening
                     ? "bg-red-500 text-white animate-pulse"
                     : "text-muted hover:text-body hover:bg-card-muted"
                 }`}
@@ -237,34 +328,19 @@ export function TeamComposer({
         </div>
 
         <p className="text-center text-[11px] text-faint mt-1.5">
-          Signed in as {profile.full_name || "you"} · Enter to send
+          {recipient
+            ? `Private to ${recipient.full_name || "your colleague"} · Enter to send`
+            : `Signed in as ${profile.full_name || "you"} · Enter to send`}
         </p>
       </div>
     </div>
   );
 }
 
-/* --- Minimal typings for the Web Speech API (not in lib.dom yet). ------- */
-
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-};
-
-type SpeechRecognitionEventLike = {
-  resultIndex: number;
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
-};
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  }
+function describeRole(mate: StaffMate): string {
+  if (mate.is_admin && mate.role === "counsellor") return "Counsellor · admin";
+  if (mate.role === "support") return "Booking desk";
+  if (mate.role === "admin") return "Admin";
+  if (mate.role === "counsellor") return "Counsellor";
+  return "Team";
 }

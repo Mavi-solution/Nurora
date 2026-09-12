@@ -13,12 +13,17 @@ import { formatMoney } from "@/lib/format";
 import { addDaysToDateKey, pad, WEEKDAYS } from "@/lib/time";
 import type {
   AppointmentRow,
+  AppointmentTag,
   ClientSummary,
   CounsellorSummary,
   Profile,
   ScheduleLane,
+  Service,
+  StaffMate,
 } from "@/lib/types";
-import { QuickBookDialog } from "./quick-book";
+import { BookingDialog } from "./booking-dialog";
+import { MilestoneTrack } from "./milestone-track";
+import { milestoneProgress } from "@/lib/business/milestones";
 import { TeamComposer } from "./team-composer";
 
 export function ScheduleBoard({
@@ -29,6 +34,9 @@ export function ScheduleBoard({
   counsellorFilter,
   lanes,
   clients,
+  mates,
+  services,
+  tags,
   checkedInAt,
 }: {
   profile: Profile;
@@ -38,6 +46,9 @@ export function ScheduleBoard({
   counsellorFilter: string;
   lanes: ScheduleLane[];
   clients: ClientSummary[];
+  mates: StaffMate[];
+  services: Service[];
+  tags: AppointmentTag[];
   checkedInAt: string | null;
 }) {
   const router = useRouter();
@@ -45,6 +56,7 @@ export function ScheduleBoard({
 
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [startTarget, setStartTarget] = useState<AppointmentRow | null>(null);
   const [quickBook, setQuickBook] = useState<{
     counsellorId?: string;
@@ -53,6 +65,13 @@ export function ScheduleBoard({
   const [pending, startTransition] = useTransition();
 
   const tz = profile.timezone;
+
+  // Tag labels are resolved from the catalogue, so a retired tag simply
+  // stops rendering rather than showing a dangling id.
+  const tagById = useMemo(
+    () => new Map(tags.map((t) => [t.id, t])),
+    [tags],
+  );
 
   function go(next: Partial<{ date: string; counsellor: string }>) {
     const search = new URLSearchParams(params.toString());
@@ -177,6 +196,12 @@ export function ScheduleBoard({
         </div>
       )}
 
+      {notice && (
+        <div className="mb-4">
+          <Alert tone="success">{notice}</Alert>
+        </div>
+      )}
+
       {/* -------------------------------------------------- lanes */}
       {lanes.length === 0 ? (
         <Card>
@@ -194,6 +219,7 @@ export function ScheduleBoard({
               tz={tz}
               viewer={profile}
               pending={pending}
+              tagById={tagById}
               onStart={setStartTarget}
               onEnd={onEnd}
               onBook={(startsAt) =>
@@ -213,6 +239,7 @@ export function ScheduleBoard({
       {/* ---------------------------------------------- composer */}
       <TeamComposer
         profile={profile}
+        mates={mates}
         onQuickBook={() => setQuickBook({})}
       />
 
@@ -228,18 +255,24 @@ export function ScheduleBoard({
         onError={setError}
       />
 
-      <QuickBookDialog
+      <BookingDialog
         open={quickBook !== null}
         onClose={() => setQuickBook(null)}
         counsellors={counsellors}
         clients={clients}
+        services={services}
+        tags={tags}
         defaultCounsellorId={quickBook?.counsellorId}
         defaultStartsAt={quickBook?.startsAt}
         dateKey={dateKey}
         tz={tz}
-        currency={profile.currency}
-        onBooked={() => {
+        onSaved={(result) => {
           setQuickBook(null);
+          setNotice(
+            result.kind === "interest"
+              ? "Saved as an interest — no slot is held."
+              : "Appointment booked.",
+          );
           router.refresh();
         }}
       />
@@ -410,6 +443,7 @@ function LaneCard({
   tz,
   viewer,
   pending,
+  tagById,
   onStart,
   onEnd,
   onBook,
@@ -418,6 +452,7 @@ function LaneCard({
   tz: string;
   viewer: Profile;
   pending: boolean;
+  tagById: Map<string, AppointmentTag>;
   onStart: (a: AppointmentRow) => void;
   onEnd: (id: string) => void;
   onBook: (startsAt: string) => void;
@@ -425,7 +460,10 @@ function LaneCard({
   const { counsellor, appointments, openSlots } = lane;
   const [showAllSlots, setShowAllSlots] = useState(false);
 
-  const booked = appointments.filter((a) => a.status !== "cancelled").length;
+  const live = appointments.filter((a) => a.status !== "cancelled");
+  const booked = live.length;
+  // Genuinely finished, by the five-milestone rule — not just ended.
+  const fullyDone = live.filter((a) => milestoneProgress(a).allDone).length;
   // Only clinicians run timers; the desk can see the diary but not start
   // a session on someone's behalf.
   const viewerIsClinical =
@@ -461,6 +499,7 @@ function LaneCard({
           <p className="text-[12px] text-muted">
             {booked} booked
             {openSlots.length > 0 && ` · ${openSlots.length} open`}
+            {booked > 0 && ` · ${fullyDone}/${booked} completed`}
           </p>
         </div>
 
@@ -495,6 +534,7 @@ function LaneCard({
               tz={tz}
               canRun={canRun}
               pending={pending}
+              tagById={tagById}
               onStart={onStart}
               onEnd={onEnd}
             />
@@ -539,6 +579,7 @@ function AppointmentLine({
   tz,
   canRun,
   pending,
+  tagById,
   onStart,
   onEnd,
 }: {
@@ -546,6 +587,7 @@ function AppointmentLine({
   tz: string;
   canRun: boolean;
   pending: boolean;
+  tagById: Map<string, AppointmentTag>;
   onStart: (a: AppointmentRow) => void;
   onEnd: (id: string) => void;
 }) {
@@ -553,12 +595,18 @@ function AppointmentLine({
   const cancelled = appointment.status === "cancelled";
   const completed = appointment.status === "completed";
 
+  const clientPhone = appointment.client?.phone ?? null;
+  const tags = (appointment.tag_ids ?? [])
+    .map((id) => tagById.get(id))
+    .filter((t): t is AppointmentTag => Boolean(t));
+
   return (
     <div
-      className={`flex items-center gap-3 px-4 sm:px-5 py-3 border-t border-hairline first:border-t-0 transition-colors ${
+      className={`px-4 sm:px-5 py-3 border-t border-hairline first:border-t-0 transition-colors ${
         running ? "bg-emerald-50/40 dark:bg-emerald-500/5" : ""
       } ${cancelled ? "opacity-55" : ""}`}
     >
+    <div className="flex items-center gap-3">
       <span className="text-faint shrink-0">
         <ClockIcon />
       </span>
@@ -567,14 +615,39 @@ function AppointmentLine({
         {timeLabel(appointment.starts_at, tz)}
       </span>
 
-      <Link
-        href={`/appointments/${appointment.id}`}
-        className={`text-[14px] font-medium flex-1 truncate hover:underline underline-offset-2 ${
-          cancelled ? "line-through" : ""
-        }`}
-      >
-        {appointment.client?.full_name ?? "Unknown client"}
-      </Link>
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/appointments/${appointment.id}`}
+          className={`block text-[14px] font-medium truncate hover:underline underline-offset-2 ${
+            cancelled ? "line-through" : ""
+          }`}
+        >
+          {appointment.client?.full_name ?? "Unknown client"}
+        </Link>
+
+        {clientPhone && (
+          <span className="inline-flex items-center gap-1 text-[12px] text-muted mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 3h4l2 5-3 2a12 12 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2Z" />
+            </svg>
+            {clientPhone}
+          </span>
+        )}
+
+        {tags.length > 0 && (
+          <span className="flex flex-wrap gap-1 mt-1">
+            {tags.map((t) => (
+              <span
+                key={t.id}
+                title={t.label}
+                className="inline-flex items-center rounded-full bg-card-muted border border-hairline px-2 py-0.5 text-[11px] text-muted"
+              >
+                {t.abbreviation}
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
 
       {appointment.client && (
         <span className="hidden sm:inline shrink-0">
@@ -608,8 +681,23 @@ function AppointmentLine({
           </Button>
         </span>
       ) : completed ? (
-        <span className="text-[12px] text-muted shrink-0 tabular-nums">
-          {totalMinutes(appointment)} min
+        <span className="text-right shrink-0">
+          <span className="block text-[12px] text-muted tabular-nums">
+            {totalMinutes(appointment)} min
+          </span>
+          {/* The guide is explicit: "Completed" means all five
+              milestones, not merely that the session ran. */}
+          <span
+            className={`block text-[11px] ${
+              milestoneProgress(appointment).allDone
+                ? "text-emerald-700 dark:text-emerald-300 font-medium"
+                : "text-amber-700 dark:text-amber-300"
+            }`}
+          >
+            {milestoneProgress(appointment).allDone
+              ? "Completed"
+              : "Steps outstanding"}
+          </span>
         </span>
       ) : cancelled ? (
         <span className="text-[12px] text-muted shrink-0">Cancelled</span>
@@ -624,6 +712,18 @@ function AppointmentLine({
           <PlayIcon />
           Start
         </Button>
+      )}
+    </div>
+
+      {/* The five milestones. A cancelled session has nothing to chase. */}
+      {!cancelled && (
+        <div className="pl-[5.9rem]">
+          <MilestoneTrack
+            appointmentId={appointment.id}
+            appointment={appointment}
+            canEdit={canRun}
+          />
+        </div>
       )}
     </div>
   );

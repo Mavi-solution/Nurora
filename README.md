@@ -38,15 +38,61 @@ availability appear as bookable gaps.
 bank transfer, card, cheque) with a method and reference, refund it, waive it,
 or re-price it from the time actually tracked. No payment gateway is wired in.
 
+**WhatsApp confirmations** — booking, moving or cancelling a session sends the
+client a WhatsApp message straight away (Twilio), with email alongside when an
+address is on file. WhatsApp leads; SMS is a *fallback*, not a second copy, so
+nobody gets the same message twice. Numbers are normalised to E.164 first — a
+stored `09876543210` is dialled as `+919876543210` — and an unusable number is
+skipped rather than sent as garbage. Counsellors get their own copy according
+to the notification preferences on their profile.
+
+Production also needs **approved WhatsApp templates**: Meta blocks free-form
+business-initiated messages outside a 24-hour window, so set the Twilio Content
+SIDs in `.env`. Left blank, the app sends free-form text — which is exactly what
+the Twilio sandbox accepts in development.
+
+Nothing here can take a booking down: every send is awaited but its failure is
+recorded, never thrown. The session is booked either way, and the desk is told
+separately whether the message got out. Reception can **resend the confirmation**
+from the appointment page when a client gives a corrected number.
+
 **Reminders, three days out** — a daily Vercel Cron job finds every session
 exactly three days away and notifies **both parties** by email (Resend),
 WhatsApp/SMS (Twilio) and in-app. Sends are idempotent: a ledger row per
 (appointment, recipient, channel) means re-running the job never double-sends,
 while a channel that *failed* is retried the next day.
 
-**Team channel** — a realtime staff-only chat, with a floating composer on the
-schedule board that also carries Quick Book and voice dictation (the browser's
+**Week-offs, leave and holidays** — three deliberately different things:
+
+- a **week-off** is a counsellor's own planned day off, counted against a
+  monthly allowance;
+- **leave** is any other day off, including one auto-marked when someone
+  never checked in;
+- a **holiday** is an org-wide closure an admin sets, and applies to everyone.
+
+The week-off allowance is **computed, never stored**. A month is not four
+Sun–Sat weeks: it is split into rows that each *end* on a Saturday, and a stub
+row of three days or fewer at either end merges into its neighbour. August 2026
+yields 4 rows, September 2026 yields 5. Only one week-off is allowed per row, so
+the allowance cannot be spent faster than it accrues. The bands down the left of
+the calendar are those real rows, so the number on screen is the number the
+server enforces.
+
+**Team chat** — two kinds, both realtime and both staff-only:
+
+- a **shared channel** everyone with a staff login can read, and
+- a **private thread** with any one colleague — another counsellor, the booking
+  desk, or an admin.
+
+The floating composer on the schedule board carries a recipient picker, so a
+counsellor between sessions can fire a private line to reception without
+leaving the board. It also keeps Quick Book and voice dictation (the browser's
 built-in SpeechRecognition — no external service, hidden where unsupported).
+
+A direct message rings the recipient's bell and badges the Team nav item.
+**Privacy holds against admins too**: a thread is readable only by its two
+participants, enforced in row-level security rather than in the UI. Clients can
+never appear at either end.
 
 **Roles**
 | Role | Sees |
@@ -170,6 +216,9 @@ npm run test:logic   # timezone, slot and reminder arithmetic (no services neede
 npm run test:e2e     # full browser walkthrough against a local Supabase stack
 npm run test:signup  # first-account bootstrap: counsellor + admin, on an empty DB
 npm run test:desk    # the booking desk, driven as reception: lookup → capture → match → book
+npm run test:messaging  # WhatsApp-on-booking + the team channel and private threads
+npm run test:rules      # the MUST MATCH business rules (no database, no services)
+npm run test:leave      # week-off allowance, one-per-week, leave, holidays, permissions
 ```
 
 `test:e2e` needs Docker and the local stack (`npx supabase start`). It checks
@@ -189,6 +238,24 @@ what reached the database: the booking channel, the call notes, that the
 matched counsellor genuinely holds the requested specialism, that an invoice
 was raised, and that reception can read the booking notes but **not** the
 session notes.
+
+`test:messaging` books a session and asserts the WhatsApp confirmation was
+attempted and written to the delivery ledger with a normalised destination
+(locally Twilio is unset, so the expected status is `skipped` — what is being
+checked is that the send path ran and was recorded rather than silently doing
+nothing). It then sends a team message and a private one, confirms the
+recipient receives it, and confirms a **third counsellor cannot see it**.
+
+`test:rules` checks the week-off allowance against the two months the handoff
+names as its acceptance case (August 2026 → 4, September 2026 → 5), then all 84
+months from 2024–2030 for gapless tiling, no surviving stub rows and an
+allowance that is always 4 or 5. It also covers the tiered advance formula and
+the extension-block billing.
+
+`test:leave` drives the allowance through the real UI: takes a week-off, is
+refused a second one in the same week, fills the month, is refused a fifth,
+then confirms leave can still be logged once the allowance is spent and that a
+non-admin counsellor cannot set clinic holidays.
 
 The logic checks cover DST transitions in both directions, month and year
 boundaries, partial-day blocks, and the case where a late-evening IST session

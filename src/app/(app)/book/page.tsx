@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { isStaff, requireSession } from "@/lib/auth";
+import { CLINICIAN_ROLES, isStaff, requireSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { dateKeyInTimeZone } from "@/lib/time";
 import type { CounsellorSummary, Specialism } from "@/lib/types";
@@ -30,10 +30,10 @@ export default async function BookPage() {
         .select(
           "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages",
         )
-        .eq("role", "counsellor")
+        .in("role", CLINICIAN_ROLES)
         .eq("is_active", true)
         .order("full_name"),
-      supabase.from("profiles").select("languages").eq("role", "counsellor"),
+      supabase.from("profiles").select("languages").in("role", CLINICIAN_ROLES),
     ]);
 
   // The language filter offers only what someone here can actually speak.

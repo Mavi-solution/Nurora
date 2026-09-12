@@ -12,7 +12,15 @@
     "test:e2e": "supabase db reset && node scripts/e2e.mjs",
     "db:reset": "supabase db reset",
     "test:signup": "supabase db reset && node scripts/check-signup.mjs",
-    "test:desk": "supabase db reset && node scripts/check-booking-desk.mjs"
+    "test:desk": "supabase db reset && node scripts/check-booking-desk.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "test:messaging": "supabase db reset && node scripts/check-messaging.mjs",
+    "test:rules": "node scripts/check-business-rules.mjs",
+    "test:leave": "supabase db reset && node scripts/check-leave.mjs",
+    "test:roster": "node scripts/check-roster.mjs",
+    "test:booking": "supabase db reset && node scripts/check-booking-dialog.mjs",
+    "test:lifecycle": "supabase db reset && node scripts/check-lifecycle.mjs",
+    "test:milestones": "supabase db reset && node scripts/check-milestones.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

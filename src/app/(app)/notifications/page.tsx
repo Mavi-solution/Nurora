@@ -24,7 +24,7 @@ export default async function NotificationsPage() {
       <div className="mb-6">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Notifications</h1>
         <p className="text-[13px] text-muted mt-0.5">
-          Session reminders arrive three days before each appointment.
+          Booking confirmations, session reminders and messages from the team.
         </p>
       </div>
 
@@ -54,13 +54,12 @@ export default async function NotificationsPage() {
                 </div>
               );
 
+              const href =
+                n.link ?? (n.appointment_id ? `/appointments/${n.appointment_id}` : null);
+
               return (
                 <li key={n.id}>
-                  {n.appointment_id ? (
-                    <Link href={`/appointments/${n.appointment_id}`}>{content}</Link>
-                  ) : (
-                    content
-                  )}
+                  {href ? <Link href={href}>{content}</Link> : content}
                 </li>
               );
             })}

@@ -1,14 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
+import { DictateButton, useDictation } from "@/components/dictation";
 import { SessionTimer } from "@/components/session-timer";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import {
   addManualTime,
   cancelAppointment,
   endSession,
+  resendAppointmentConfirmation,
   saveSessionNote,
   setAppointmentStatus,
   startSession,
@@ -43,6 +45,16 @@ export function AppointmentActions({
   const [minutes, setMinutes] = useState("60");
   const [manualNote, setManualNote] = useState("");
   const [notes, setNotes] = useState(sessionNote);
+  // After ending a session the notes are what's outstanding, so the card
+  // asks for them instead of leaving the counsellor to find it.
+  const [promptNotes, setPromptNotes] = useState(false);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+
+  const dictation = useDictation({
+    onText: setNotes,
+    baseline: () => notes,
+    continuous: true,
+  });
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, success?: string) {
     setError(null);
@@ -84,7 +96,12 @@ export function AppointmentActions({
               <Button
                 className="w-full"
                 disabled={!canRun || pending}
-                onClick={() => run(() => endSession(appointmentId), "Session ended and billed.")}
+                onClick={() =>
+                  run(() => {
+                    setPromptNotes(true);
+                    return endSession(appointmentId);
+                  }, "Session ended and billed. Write up your notes below.")
+                }
               >
                 End session
               </Button>
@@ -107,6 +124,22 @@ export function AppointmentActions({
               onClick={() => setManualOpen(true)}
             >
               Log time manually
+            </Button>
+          )}
+
+          {isStaff && (
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={pending}
+              onClick={() =>
+                run(
+                  () => resendAppointmentConfirmation(appointmentId),
+                  "Sent to the client on WhatsApp.",
+                )
+              }
+            >
+              Resend WhatsApp confirmation
             </Button>
           )}
 
@@ -147,23 +180,62 @@ export function AppointmentActions({
           <CardHeader
             title="Session notes"
             description="Clinical record — only you and an admin can read this."
+            action={
+              dictation.supported ? (
+                <DictateButton
+                  listening={dictation.listening}
+                  onClick={dictation.toggle}
+                  label="Dictate"
+                />
+              ) : undefined
+            }
           />
           <div className="px-5 py-4 space-y-3">
+            {promptNotes && notes.trim() === "" && (
+              <Alert tone="info">
+                The session is billed. Write up what happened while it is fresh
+                {dictation.supported ? " — or dictate it." : "."}
+              </Alert>
+            )}
+
+            {dictation.error && <Alert tone="error">{dictation.error}</Alert>}
+
             <textarea
+              ref={notesRef}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={5}
-              className={`${fieldClass} resize-y`}
-              placeholder="Observations, follow-ups, plan for next time…"
+              rows={promptNotes ? 8 : 5}
+              className={`${fieldClass} resize-y ${
+                dictation.listening ? "border-red-400 ring-4 ring-red-500/10" : ""
+              }`}
+              placeholder={
+                dictation.listening
+                  ? "Listening — speak now…"
+                  : "Observations, follow-ups, plan for next time…"
+              }
             />
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={pending || notes === sessionNote}
-              onClick={() => run(() => saveSessionNote(appointmentId, notes), "Notes saved.")}
-            >
-              Save notes
-            </Button>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={pending || notes === sessionNote}
+                onClick={() =>
+                  run(() => {
+                    dictation.stop();
+                    setPromptNotes(false);
+                    return saveSessionNote(appointmentId, notes);
+                  }, "Notes saved.")
+                }
+              >
+                Save notes
+              </Button>
+              {dictation.listening && (
+                <span className="text-[12px] text-muted">
+                  Dictation keeps running between pauses — stop it when you are done.
+                </span>
+              )}
+            </div>
           </div>
         </Card>
       )}

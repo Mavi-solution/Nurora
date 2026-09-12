@@ -1,0 +1,10 @@
+# Playwright suites and their artefacts — never run on Vercel.
+scripts
+screenshots
+
+# The local Supabase stack. Migrations are applied to the hosted project
+# with the Supabase CLI, not by the Vercel build.
+supabase
+
+# Local notes and dumps
+*.log

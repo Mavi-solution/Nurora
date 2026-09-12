@@ -136,7 +136,14 @@ try {
   check("checked in", await page.getByRole("button", { name: /Checked in/ }).isVisible());
 
   step("Start a session");
-  const raviRow = page.locator("div").filter({ has: page.getByRole("link", { name: "Ravi Kumar" }) }).last();
+  // Match the row that holds BOTH the client link and its Start button —
+  // the appointment row has nested divs, so "last div containing the
+  // link" can resolve to an inner one with no button in it.
+  const raviRow = page
+    .locator("div")
+    .filter({ has: page.getByRole("link", { name: "Ravi Kumar" }) })
+    .filter({ has: page.getByRole("button", { name: "Start" }) })
+    .last();
   await raviRow.getByRole("button", { name: "Start" }).click();
   await page.getByRole("dialog").waitFor({ timeout: 10000 });
   check("dialog title", await page.getByText("Start this session?").isVisible());
@@ -174,12 +181,22 @@ try {
   check("Mark paid available", await page.getByRole("button", { name: "Mark paid" }).first().isVisible());
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
 
-  step("Quick book validates");
+  step("Booking dialog validates");
   await page.getByRole("button", { name: "Quick book" }).click();
   await page.getByRole("dialog").waitFor({ timeout: 10000 });
-  await page.getByRole("button", { name: /Confirm booking/i }).click();
-  check("rejects an empty booking", await page.getByText(/Pick a (client|time slot)/i).isVisible());
-  await page.screenshot({ path: `${SHOTS}/06-quick-book.png` });
+  check("opens as a new appointment",
+    await page.getByText("New appointment").first().isVisible());
+  await page.getByRole("button", { name: "Book appointment" }).click();
+  check("rejects an empty booking",
+    await page.getByRole("dialog").locator("[class*='bg-red-50']").first().isVisible());
+
+  // Interest and Booked are not cosmetic: only one of them takes a slot.
+  await page.getByRole("dialog").getByRole("button", { name: "Interest", exact: true }).click();
+  check("switching to Interest retitles the dialog",
+    await page.getByText("New interest").first().isVisible());
+  check("Interest warns it holds no slot",
+    await page.getByText(/won't hold the slot/).isVisible());
+  await page.screenshot({ path: `${SHOTS}/06-booking-dialog.png` });
   await page.keyboard.press("Escape");
 
   step("Other pages");

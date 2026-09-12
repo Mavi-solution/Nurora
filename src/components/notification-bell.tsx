@@ -127,7 +127,7 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
 
             {!loading && items.length === 0 && (
               <p className="px-4 py-8 text-[13px] text-muted text-center">
-                Nothing yet. Session reminders land here three days ahead.
+                Nothing yet. Bookings, reminders and team messages land here.
               </p>
             )}
 
@@ -156,8 +156,11 @@ function NotificationRow({ n }: { n: Notification }) {
     </div>
   );
 
-  return n.appointment_id ? (
-    <Link href={`/appointments/${n.appointment_id}`} className="block">
+  // link wins over appointment_id: a direct message points at its thread.
+  const href = n.link ?? (n.appointment_id ? `/appointments/${n.appointment_id}` : null);
+
+  return href ? (
+    <Link href={href} className="block">
       {body}
     </Link>
   ) : (

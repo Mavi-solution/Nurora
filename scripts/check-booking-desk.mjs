@@ -106,7 +106,15 @@ try {
   const laneNames = await page.locator(".text-\\[14px\\].font-medium").allTextContents();
   check("at least one counsellor matched", laneNames.length > 0, laneNames.join(","));
 
+  // Book a few days out rather than today. Today's remaining slots depend
+  // on the wall clock, so a run late in the working day finds an empty
+  // grid and fails for reasons unrelated to the desk.
+  const target = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  await page.getByLabel("Date").fill(target);
+  await page.waitForTimeout(1200);
+
   const slotButtons = page.locator("button").filter({ hasText: /^\d{2}:\d{2}$/ });
+  await slotButtons.first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
   const slotCount = await slotButtons.count();
   check("slots offered", slotCount > 0, `${slotCount} slots`);
   await page.screenshot({ path: "screenshots/14-desk-match.png", fullPage: true });

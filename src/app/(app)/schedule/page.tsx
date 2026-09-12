@@ -1,4 +1,6 @@
-import { requireStaff } from "@/lib/auth";
+import { listAppointmentTags, listServices } from "@/lib/actions/services";
+import { listStaffMates } from "@/lib/actions/team";
+import { CLINICIAN_ROLES, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   addDaysToDateKey,
@@ -60,7 +62,7 @@ export default async function SchedulePage({
       .select(
         "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency",
       )
-      .eq("role", "counsellor")
+      .in("role", CLINICIAN_ROLES)
       .eq("is_active", true)
       .order("full_name"),
     supabase
@@ -162,6 +164,15 @@ export default async function SchedulePage({
     (s) => s.staff_id === profile.id,
   );
 
+  // Who the floating composer can send a private line to.
+  const mates = await listStaffMates();
+
+  // The price list and tag labels the booking dialog offers.
+  const [services, tags] = await Promise.all([
+    listServices(),
+    listAppointmentTags(),
+  ]);
+
   return (
     <ScheduleBoard
       profile={profile}
@@ -171,6 +182,9 @@ export default async function SchedulePage({
       counsellorFilter={counsellorFilter}
       lanes={lanes}
       clients={clients}
+      mates={mates}
+      services={services}
+      tags={tags}
       checkedInAt={(myOpenShift?.checked_in_at as string) ?? null}
     />
   );

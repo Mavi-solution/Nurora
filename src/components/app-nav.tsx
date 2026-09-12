@@ -8,7 +8,12 @@ import { ThemeToggle } from "./theme-toggle";
 import { NotificationBell } from "./notification-bell";
 import type { Profile } from "@/lib/types";
 
-type NavItem = { href: string; label: string; icon: React.ReactNode };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  badge?: number;
+};
 
 const icon = {
   width: 18,
@@ -24,9 +29,11 @@ const icon = {
 export function AppNav({
   profile,
   unreadCount,
+  unreadMessages = 0,
 }: {
   profile: Profile;
   unreadCount: number;
+  unreadMessages?: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -52,14 +59,26 @@ export function AppNav({
         { href: "/book", label: "Book a session", icon: <PlusIcon /> },
         { href: "/clients", label: "Clients", icon: <UsersIcon /> },
         ...(manages
-          ? [{ href: "/counsellors", label: "Counsellors", icon: <BadgeIcon /> }]
+          ? [
+              { href: "/counsellors", label: "Counsellors", icon: <BadgeIcon /> },
+              { href: "/interests", label: "Interest & Booked", icon: <SparkIcon /> },
+            ]
           : []),
         { href: "/availability", label: "Availability", icon: <SlidersIcon /> },
         { href: "/payments", label: "Payments", icon: <WalletIcon /> },
         ...(clinical
           ? [{ href: "/timesheet", label: "Timesheet", icon: <ClockIcon /> }]
           : []),
-        { href: "/team", label: "Team", icon: <ChatIcon /> },
+        { href: "/leave", label: "Week-offs & Leave", icon: <SunIcon /> },
+        ...(manages
+          ? [{ href: "/services", label: "Services & pricing", icon: <TagIcon /> }]
+          : []),
+        {
+          href: "/team",
+          label: "Team",
+          icon: <ChatIcon />,
+          badge: unreadMessages,
+        },
       ]
     : [{ href: "/my", label: "My sessions", icon: <CalendarIcon /> }];
 
@@ -141,7 +160,15 @@ export function AppNav({
                 <span className={active ? "text-brand-600 dark:text-brand-300" : ""}>
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.badge ? (
+                  <span
+                    aria-label={`${item.badge} unread`}
+                    className="min-w-[1.125rem] h-[1.125rem] px-1 rounded-full bg-brand-600 text-white text-[10px] font-semibold grid place-items-center tabular-nums"
+                  >
+                    {item.badge > 9 ? "9+" : item.badge}
+                  </span>
+                ) : null}
               </Link>
             );
           })}
@@ -200,6 +227,24 @@ const ClockIcon = () => (
   <svg {...icon}>
     <circle cx="12" cy="12" r="9" />
     <path d="M12 7v5l3 2" />
+  </svg>
+);
+const SparkIcon = () => (
+  <svg {...icon}>
+    <path d="M12 3v3M12 18v3M4.9 7.5l2.1 2.1M17 14.4l2.1 2.1M3 12h3M18 12h3M4.9 16.5 7 14.4M17 9.6l2.1-2.1" />
+    <circle cx="12" cy="12" r="2.5" />
+  </svg>
+);
+const TagIcon = () => (
+  <svg {...icon}>
+    <path d="M20.6 13.4 12 22l-9-9 8.6-8.6A2 2 0 0 1 13 3.8l7 .2.2 7a2 2 0 0 1-.6 1.4Z" />
+    <circle cx="16" cy="8" r="1.3" />
+  </svg>
+);
+const SunIcon = () => (
+  <svg {...icon}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
   </svg>
 );
 const ChatIcon = () => (
