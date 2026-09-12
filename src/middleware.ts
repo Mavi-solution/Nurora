@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { supabaseConfigured } from "@/lib/supabase/env";
 
 const PUBLIC_PATHS = ["/", "/login", "/signup", "/auth", "/api/cron"];
 
@@ -10,6 +11,19 @@ function isPublic(pathname: string) {
 }
 
 export async function middleware(request: NextRequest) {
+  // A deployment with no Supabase credentials would otherwise throw here
+  // and return 500 for EVERY request — including the public pages and
+  // the error page itself. Fail with something a human can act on, and
+  // let the request through so the app can render its own message.
+  if (!supabaseConfigured()) {
+    console.error(
+      "[nurora] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY " +
+        "are not set. Set them in your deployment's environment variables " +
+        "and redeploy — see DEPLOY.md.",
+    );
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
