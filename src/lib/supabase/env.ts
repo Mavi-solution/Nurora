@@ -79,10 +79,15 @@ export function supabaseConfigured(): boolean {
  * NEXT_PUBLIC_ prefix Next cannot expose it to the browser.
  */
 export function misprefixedVars(): string[] {
-  return (["SUPABASE_URL", "SUPABASE_ANON_KEY"] as const)
-    .filter(
-      (n) =>
-        process.env[n]?.trim() && !process.env[`NEXT_PUBLIC_${n}`]?.trim(),
-    )
-    .map((n) => `${n} is set but NEXT_PUBLIC_${n} is not — rename it`);
+  // Static keys, not process.env[`NEXT_PUBLIC_${n}`]: NEXT_PUBLIC_ values
+  // are substituted into the bundle at build time, and the bundler can
+  // only do that for a literal key. A computed one is never replaced.
+  const pairs: [string, string | undefined, string | undefined][] = [
+    ["SUPABASE_URL", process.env.SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_URL],
+    ["SUPABASE_ANON_KEY", process.env.SUPABASE_ANON_KEY, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY],
+  ];
+
+  return pairs
+    .filter(([, plain, prefixed]) => plain?.trim() && !prefixed?.trim())
+    .map(([name]) => `${name} is set but NEXT_PUBLIC_${name} is not`);
 }

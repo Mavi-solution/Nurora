@@ -28,9 +28,15 @@ export async function middleware(request: NextRequest) {
     const misprefixed = misprefixedVars();
     console.error(
       misprefixed.length > 0
-        ? `[nurora] ${misprefixed.join("; ")}. The NEXT_PUBLIC_ prefix is ` +
-          "what makes the value available to the browser, which the " +
-          "realtime features need. Rename and redeploy — see DEPLOY.md."
+        ? `[nurora] ${misprefixed.join("; ")} — in THIS BUILD.\n\n` +
+          "Either it is named without the NEXT_PUBLIC_ prefix (which is " +
+          "what makes the value available to the browser, where the " +
+          "realtime features run), OR it was added after this build ran.\n\n" +
+          "NEXT_PUBLIC_ values are compiled into the bundle, never read at " +
+          "runtime — so if you have already added them, this deployment " +
+          "predates them. Redeploy with the build cache DISABLED " +
+          "(Vercel: Deployments -> ... -> Redeploy, untick 'Use existing " +
+          "Build Cache'). See DEPLOY.md."
         : "[nurora] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY " +
           "are not set. Set them in your deployment's environment variables " +
           "and redeploy — see DEPLOY.md.",

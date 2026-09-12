@@ -49,13 +49,15 @@ export async function GET() {
         ok: false,
         problem:
           misprefixed.length > 0
-            ? `Set under the wrong name: ${misprefixed.join("; ")}.`
+            ? `${misprefixed.join("; ")} — in this build.`
             : "Supabase environment variables are missing from this build.",
         fix: misprefixed.length > 0
-          ? "The NEXT_PUBLIC_ prefix is what tells Next.js to include the " +
-            "value in the browser bundle, and the realtime features (team " +
-            "chat, notification bell) run in the browser. Rename them in " +
-            "Vercel and redeploy. SUPABASE_SERVICE_ROLE_KEY is correct " +
+          ? "Either the prefix is missing, or this build predates the " +
+            "variable. NEXT_PUBLIC_ values are compiled in at build time " +
+            "and never read at runtime, so adding them without a fresh " +
+            "build changes nothing — redeploy with the build cache " +
+            "DISABLED. Check buildStamp.commit below to see which commit " +
+            "is actually running. SUPABASE_SERVICE_ROLE_KEY is correct " +
             "WITHOUT a prefix — it must never reach the browser."
           :
           "Set them in Vercel (Settings -> Environment Variables) for the " +
