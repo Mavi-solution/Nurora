@@ -20,7 +20,8 @@
     "test:roster": "node scripts/check-roster.mjs",
     "test:booking": "supabase db reset && node scripts/check-booking-dialog.mjs",
     "test:lifecycle": "supabase db reset && node scripts/check-lifecycle.mjs",
-    "test:milestones": "supabase db reset && node scripts/check-milestones.mjs"
+    "test:milestones": "supabase db reset && node scripts/check-milestones.mjs",
+    "test:admin": "supabase db reset && node scripts/check-admin-screens.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

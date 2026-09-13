@@ -290,6 +290,23 @@ export type InterestRow = Interest & {
   counsellor: Pick<Profile, "id" | "full_name" | "avatar_url"> | null;
 };
 
+/** Booked / Reschedule / Interest / Cancelled — the BRIC tabs. */
+export type BricTab = "booked" | "reschedule" | "interest" | "cancelled";
+
+/** One row in the BRIC view, flattened from appointments or interests. */
+export type BricRow = {
+  id: string;
+  client: string;
+  /** Null for non-admins — the counsellor view is stripped of contacts. */
+  phone: string | null;
+  counsellor: string | null;
+  service: string | null;
+  when: string | null;
+  status: string;
+  detail: string;
+  href: string;
+};
+
 export type LeaveKind = "planned" | "sick" | "unpaid" | "auto";
 
 /** An org-wide closure. Applies to everyone. */

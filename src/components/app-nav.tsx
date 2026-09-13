@@ -64,12 +64,21 @@ export function AppNav({
               { href: "/interests", label: "Interest & Booked", icon: <SparkIcon /> },
             ]
           : []),
+        { href: "/bric", label: "BRIC", icon: <GridIcon /> },
+        { href: "/persona", label: "Persona", icon: <IdIcon /> },
         { href: "/availability", label: "Availability", icon: <SlidersIcon /> },
         { href: "/payments", label: "Payments", icon: <WalletIcon /> },
         ...(clinical
           ? [{ href: "/timesheet", label: "Timesheet", icon: <ClockIcon /> }]
           : []),
+        { href: "/attendance", label: "Attendance", icon: <PinIcon /> },
         { href: "/leave", label: "Week-offs & Leave", icon: <SunIcon /> },
+        ...(clinical
+          ? [{ href: "/nubills", label: "Nubills", icon: <ReceiptIcon /> }]
+          : []),
+        ...(manages
+          ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }]
+          : []),
         ...(manages
           ? [{ href: "/services", label: "Services & pricing", icon: <TagIcon /> }]
           : []),
@@ -227,6 +236,38 @@ const ClockIcon = () => (
   <svg {...icon}>
     <circle cx="12" cy="12" r="9" />
     <path d="M12 7v5l3 2" />
+  </svg>
+);
+const GridIcon = () => (
+  <svg {...icon}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+const IdIcon = () => (
+  <svg {...icon}>
+    <rect x="3" y="5" width="18" height="14" rx="3" />
+    <circle cx="9" cy="11" r="2" />
+    <path d="M5.5 16.5a4 4 0 0 1 7 0M15 10h4M15 14h3" />
+  </svg>
+);
+const PinIcon = () => (
+  <svg {...icon}>
+    <path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z" />
+    <circle cx="12" cy="10" r="2.5" />
+  </svg>
+);
+const ReceiptIcon = () => (
+  <svg {...icon}>
+    <path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z" />
+    <path d="M9 8h6M9 12h6" />
+  </svg>
+);
+const ChartIcon = () => (
+  <svg {...icon}>
+    <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
   </svg>
 );
 const SparkIcon = () => (
