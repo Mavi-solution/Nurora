@@ -548,7 +548,7 @@ export function BookingDialog({
           )}
 
           {(attachment === "recording" || attachment === "voice_note") && (
-            <p className="mt-2 text-[12px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-xl px-3 py-2">
+            <p className="mt-2 text-[12px] text-blush-700 dark:text-blush-300 bg-blush-50 dark:bg-blush-500/10 border border-blush-200 dark:border-blush-500/25 rounded-xl px-3 py-2">
               The {attachment === "recording" ? "recording" : "voice note"} is
               recorded against this booking and expires in 30 days, but file
               upload is not wired up yet — attach the file separately for now.

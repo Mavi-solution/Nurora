@@ -128,7 +128,7 @@ export function InterestList({
                       {i.age != null && <Pill>{i.age}</Pill>}
                       {i.client_type === "follow_up" && <Pill>Follow-up</Pill>}
                       {i.status === "converted" && (
-                        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                        <span className="text-[11px] font-medium text-sage-700 dark:text-sage-300">
                           Booked
                         </span>
                       )}

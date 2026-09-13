@@ -517,7 +517,7 @@ function LaneCard({
           <Avatar name={counsellor.full_name} url={counsellor.avatar_url} size={38} />
           {lane.isOnShift && (
             <span
-              className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-emerald-500 border-2 border-[var(--card)]"
+              className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-sage-500 border-2 border-[var(--card)]"
               title="Checked in"
             />
           )}
@@ -533,7 +533,7 @@ function LaneCard({
         </div>
 
         {lane.activeAppointmentId && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 text-[12px] font-medium dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/25">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-sage-50 text-sage-800 border border-sage-200 px-2.5 py-1 text-[12px] font-medium dark:bg-sage-500/10 dark:text-sage-300 dark:border-sage-500/25">
             <span className="size-1.5 rounded-full bg-current animate-pulse" />
             Session in progress
           </span>
@@ -655,7 +655,7 @@ function AppointmentLine({
   return (
     <div
       className={`px-4 sm:px-5 py-3 border-t border-hairline first:border-t-0 transition-colors ${
-        running ? "bg-emerald-50/40 dark:bg-emerald-500/5" : ""
+        running ? "bg-sage-50/40 dark:bg-sage-500/5" : ""
       } ${cancelled ? "opacity-55" : ""}`}
     >
     <div className="flex items-center gap-3">
@@ -716,7 +716,7 @@ function AppointmentLine({
           <span className="text-right">
             <SessionTimer
               startedAt={running.started_at}
-              className="block text-[15px] text-emerald-700 dark:text-emerald-300"
+              className="block text-[15px] text-sage-700 dark:text-sage-300"
             />
             <span className="block text-[11px] text-faint">
               Since {timeLabel(running.started_at, tz)}
@@ -742,8 +742,8 @@ function AppointmentLine({
           <span
             className={`block text-[11px] ${
               milestoneProgress(appointment).allDone
-                ? "text-emerald-700 dark:text-emerald-300 font-medium"
-                : "text-amber-700 dark:text-amber-300"
+                ? "text-sage-700 dark:text-sage-300 font-medium"
+                : "text-blush-700 dark:text-blush-300"
             }`}
           >
             {milestoneProgress(appointment).allDone
@@ -771,7 +771,7 @@ function AppointmentLine({
             Start
           </Button>
           {canRun && !startCheck.ok && (
-            <span className="block text-[11px] text-amber-700 dark:text-amber-300 mt-1 max-w-44">
+            <span className="block text-[11px] text-blush-700 dark:text-blush-300 mt-1 max-w-44">
               {startCheck.reason}
             </span>
           )}

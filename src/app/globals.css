@@ -10,29 +10,57 @@
 
 /* ===================================================================
    Nurora design tokens
-   Calm, warm, clinical-but-human. Sage teal on warm sand, aurora
-   violet as the single accent. Every token has a dark counterpart.
+
+   Palette taken from the supplied design: a deep slate teal on a pale
+   warm sage ground, with sage green and blush as the two semantic
+   surfaces. Marked EXACT are the colours read straight from that
+   design; the rest of each ramp is derived from them so shades stay in
+   the same family.
+
+   Everything is a token: the app never writes a raw hex, so the whole
+   site follows from this block.
    =================================================================== */
 
 @theme {
-  --color-brand-50:  #f0f7f5;
-  --color-brand-100: #daece8;
-  --color-brand-200: #b7d9d2;
-  --color-brand-300: #8bc0b6;
-  --color-brand-400: #5ba398;
-  --color-brand-500: #3d867c;
-  --color-brand-600: #2f6f6b;
-  --color-brand-700: #285a58;
-  --color-brand-800: #234846;
-  --color-brand-900: #1f3c3b;
+  /* Deep slate teal — the primary. 600 is the design's exact value. */
+  --color-brand-50:  #f1f4f3;
+  --color-brand-100: #e0e8e7;
+  --color-brand-200: #c3d2d0;
+  --color-brand-300: #9db4b1;
+  --color-brand-400: #6f908d;
+  --color-brand-500: #4e7370;
+  --color-brand-600: #3d5b59; /* EXACT — the "Open Nurora" panel */
+  --color-brand-700: #334b49;
+  --color-brand-800: #2b3e3d;
+  --color-brand-900: #243432;
 
-  --color-aurora-300: #c3b5ff;
-  --color-aurora-500: #7c5cff;
-  --color-aurora-600: #6544e6;
+  /* Sage — the calm/positive surface. */
+  --color-sage-50:  #f3f7ef;
+  --color-sage-100: #e3ecdd; /* EXACT — the Counsellor panel */
+  --color-sage-200: #cfdcc5;
+  --color-sage-300: #b9c6b1; /* EXACT — the connector arrows */
+  --color-sage-400: #94a889;
+  --color-sage-500: #6f8a63;
+  --color-sage-600: #577049;
+  --color-sage-700: #44603c;
+  --color-sage-800: #2f4a2c; /* EXACT — heading text on sage */
+  --color-sage-900: #263c24;
 
-  --color-sand-50:  #faf8f4;
-  --color-sand-100: #f4f0e9;
-  --color-sand-200: #e9e3d9;
+  /* Blush — the attention/warning surface. */
+  --color-blush-50:  #fdf6f1;
+  --color-blush-100: #f6e4d8; /* EXACT — the Admin panel */
+  --color-blush-200: #ecd0bd;
+  --color-blush-300: #ddb295;
+  --color-blush-400: #c9926d;
+  --color-blush-500: #b5794f;
+  --color-blush-600: #9c6540;
+  --color-blush-700: #8d5734;
+  --color-blush-800: #7b4a2d; /* EXACT — heading text on blush */
+  --color-blush-900: #5f3a24;
+
+  --color-sand-50:  #f7f8f3;
+  --color-sand-100: #f0f1ea;
+  --color-sand-200: #e8eae1;
 
   --font-display: var(--font-fraunces, ui-serif), ui-serif, Georgia, serif;
   --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, sans-serif;
@@ -42,30 +70,35 @@
 
 /* Semantic surface tokens — flipped wholesale in dark mode. */
 :root {
-  --bg: #f7f5f1;
-  --bg-subtle: #f1ede6;
-  --card: #ffffff;
-  --card-muted: #fbfaf7;
-  --border: #e6e1d8;
-  --border-strong: #d5cec1;
-  --text: #1a201f;
-  --text-muted: #6b7573;
-  --text-faint: #949c9a;
-  --ring: #2f6f6b;
-  --shadow-card: 0 1px 2px rgb(26 32 31 / 0.05), 0 8px 24px -12px rgb(26 32 31 / 0.14);
+  --bg: #f0f1ea;        /* EXACT — the page ground */
+  --bg-subtle: #e8eae1;
+  --card: #ffffff;      /* EXACT — the panels */
+  --card-muted: #f7f8f3;
+  --border: #dfe2d8;
+  --border-strong: #c8cdbe;
+  --text: #2c3a36;      /* EXACT — body copy */
+  --text-muted: #66736c;
+  --text-faint: #939e96;
+  --ring: #3d5b59;
+  --shadow-card: 0 1px 2px rgb(44 58 54 / 0.05), 0 8px 24px -12px rgb(44 58 54 / 0.16);
 }
 
+/*
+ * Dark mode keeps the same hues rather than inventing a second palette:
+ * the teal deepens into the ground and sage/blush become low-saturation
+ * tints, so a screen switched at night is recognisably the same product.
+ */
 .dark {
-  --bg: #0d1312;
-  --bg-subtle: #111a19;
-  --card: #151e1d;
-  --card-muted: #182322;
-  --border: #253230;
-  --border-strong: #33433f;
-  --text: #e9efed;
-  --text-muted: #99a5a2;
-  --text-faint: #6d7a77;
-  --ring: #5ba398;
+  --bg: #101614;
+  --bg-subtle: #141c1a;
+  --card: #18211f;
+  --card-muted: #1d2725;
+  --border: #293532;
+  --border-strong: #384643;
+  --text: #e8ece9;
+  --text-muted: #9aa6a1;
+  --text-faint: #6e7b76;
+  --ring: #6f908d;
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
 }
 

@@ -133,7 +133,7 @@ export function MilestoneTrack({
       <p
         className={`text-[11px] mt-1.5 ${
           progress.allDone
-            ? "text-emerald-700 dark:text-emerald-300 font-medium"
+            ? "text-sage-700 dark:text-sage-300 font-medium"
             : "text-muted"
         }`}
       >

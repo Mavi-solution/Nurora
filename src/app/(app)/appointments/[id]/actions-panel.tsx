@@ -83,13 +83,13 @@ export function AppointmentActions({
           {notice && <Alert tone="success">{notice}</Alert>}
 
           {running && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:bg-emerald-500/10 dark:border-emerald-500/25">
-              <p className="text-[12px] text-emerald-800 dark:text-emerald-300">
+            <div className="rounded-xl border border-sage-200 bg-sage-50 px-4 py-3 dark:bg-sage-500/10 dark:border-sage-500/25">
+              <p className="text-[12px] text-sage-800 dark:text-sage-300">
                 Session running
               </p>
               <SessionTimer
                 startedAt={running.started_at}
-                className="block text-2xl text-emerald-800 dark:text-emerald-200 mt-0.5"
+                className="block text-2xl text-sage-800 dark:text-sage-200 mt-0.5"
               />
             </div>
           )}
@@ -119,7 +119,7 @@ export function AppointmentActions({
                   Start session
                 </Button>
                 {canRun && !startCheck.ok && (
-                  <p className="text-[12px] text-amber-700 dark:text-amber-300 mt-2 leading-relaxed">
+                  <p className="text-[12px] text-blush-700 dark:text-blush-300 mt-2 leading-relaxed">
                     {startCheck.reason}
                   </p>
                 )}

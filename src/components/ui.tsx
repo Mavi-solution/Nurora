@@ -99,17 +99,23 @@ export function CardHeader({
 
 /* ------------------------------------------------------------------- Badge */
 
+/*
+ * Each state has to stay tellable apart at a glance. The mechanical
+ * palette swap briefly made "in session" and "completed" both sage,
+ * which is exactly the distinction a counsellor scanning the board
+ * needs. Completed is deliberately neutral: it is finished, not active.
+ */
 const statusStyles: Record<AppointmentStatus, string> = {
   scheduled:
     "bg-brand-50 text-brand-800 border-brand-200 dark:bg-brand-400/10 dark:text-brand-200 dark:border-brand-400/25",
   in_progress:
-    "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/25",
+    "bg-sage-100 text-sage-800 border-sage-300 dark:bg-sage-500/15 dark:text-sage-200 dark:border-sage-500/30",
   completed:
-    "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-400/10 dark:text-slate-300 dark:border-slate-400/25",
+    "bg-[var(--card-muted)] text-muted border-[var(--border-strong)] dark:bg-white/5 dark:text-muted dark:border-white/10",
   cancelled:
     "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/25",
   no_show:
-    "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/25",
+    "bg-blush-50 text-blush-800 border-blush-200 dark:bg-blush-500/10 dark:text-blush-300 dark:border-blush-500/25",
 };
 
 const statusLabels: Record<AppointmentStatus, string> = {
@@ -131,17 +137,19 @@ export function StatusBadge({ status }: { status: AppointmentStatus }) {
   );
 }
 
+/* Money states, likewise kept distinct: unpaid needs chasing, paid does
+ * not, and draft/waived are neither. */
 const invoiceStyles: Record<InvoiceStatus, string> = {
   draft:
-    "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-400/10 dark:text-slate-300 dark:border-slate-400/25",
+    "bg-[var(--card-muted)] text-muted border-[var(--border-strong)] dark:bg-white/5 dark:text-muted dark:border-white/10",
   unpaid:
-    "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/25",
+    "bg-blush-100 text-blush-800 border-blush-200 dark:bg-blush-500/15 dark:text-blush-200 dark:border-blush-500/30",
   paid:
-    "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/25",
+    "bg-sage-100 text-sage-800 border-sage-300 dark:bg-sage-500/15 dark:text-sage-200 dark:border-sage-500/30",
   refunded:
-    "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/25",
+    "bg-brand-50 text-brand-800 border-brand-200 dark:bg-brand-400/10 dark:text-brand-200 dark:border-brand-400/25",
   waived:
-    "bg-violet-50 text-violet-800 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/25",
+    "bg-[var(--bg-subtle)] text-faint border-[var(--border)] dark:bg-white/5 dark:text-faint dark:border-white/10",
 };
 
 export function InvoiceBadge({ status }: { status: InvoiceStatus }) {
@@ -285,7 +293,7 @@ export function Alert({
     error:
       "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/10 dark:text-red-200 dark:border-red-500/25",
     success:
-      "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/25",
+      "bg-sage-50 text-sage-800 border-sage-200 dark:bg-sage-500/10 dark:text-sage-200 dark:border-sage-500/25",
   };
   return (
     <div className={`rounded-xl border px-4 py-3 text-[13px] ${tones[tone]}`}>

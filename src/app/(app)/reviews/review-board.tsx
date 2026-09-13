@@ -121,7 +121,7 @@ export function ReviewBoard({
                   {target > 0 && (
                     <span className="h-1.5 w-32 rounded-full bg-card-muted overflow-hidden">
                       <span
-                        className={`block h-full ${hit ? "bg-emerald-500" : "bg-brand-500"}`}
+                        className={`block h-full ${hit ? "bg-sage-500" : "bg-brand-500"}`}
                         style={{ width: `${Math.min(100, target ? (count / target) * 100 : 0)}%` }}
                       />
                     </span>
@@ -149,7 +149,7 @@ export function ReviewBoard({
                   <p className="text-[14px] font-medium">
                     {r.client_name}
                     {r.rating != null && (
-                      <span className="ml-2 text-amber-600">{"★".repeat(r.rating)}</span>
+                      <span className="ml-2 text-blush-600">{"★".repeat(r.rating)}</span>
                     )}
                   </p>
                   {r.body && <p className="text-[13px] text-muted mt-1 leading-relaxed">{r.body}</p>}

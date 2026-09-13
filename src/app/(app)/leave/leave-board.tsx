@@ -261,7 +261,7 @@ export function LeaveBoard({
                     <p className="text-[13px] font-medium">
                       {l.on_date} · {LEAVE_LABEL[l.kind]}
                       {!l.approved_at && (
-                        <span className="ml-2 text-[11px] text-amber-700 dark:text-amber-300">
+                        <span className="ml-2 text-[11px] text-blush-700 dark:text-blush-300">
                           awaiting approval
                         </span>
                       )}
@@ -483,16 +483,16 @@ function WeekRow({
                 weekOff
                   ? "border-brand-300 bg-brand-50 dark:border-brand-400/30 dark:bg-brand-400/10"
                   : leave
-                    ? "border-amber-300 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10"
+                    ? "border-blush-300 bg-blush-50 dark:border-blush-500/30 dark:bg-blush-500/10"
                     : holiday
-                      ? "border-violet-300 bg-violet-50 dark:border-violet-500/30 dark:bg-violet-500/10"
+                      ? "border-brand-300 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
                       : "border-hairline hover:bg-card-muted"
               }`}
             >
               <span className="block text-[12px] font-medium tabular-nums">{day}</span>
               {weekOff && <span className="block text-[10px] text-brand-700 dark:text-brand-300 mt-0.5">Week-off</span>}
-              {!weekOff && leave && <span className="block text-[10px] text-amber-700 dark:text-amber-300 mt-0.5">{LEAVE_LABEL[leave.kind]}</span>}
-              {!weekOff && !leave && holiday && <span className="block text-[10px] text-violet-700 dark:text-violet-300 mt-0.5 truncate">{holiday.name}</span>}
+              {!weekOff && leave && <span className="block text-[10px] text-blush-700 dark:text-blush-300 mt-0.5">{LEAVE_LABEL[leave.kind]}</span>}
+              {!weekOff && !leave && holiday && <span className="block text-[10px] text-brand-700 dark:text-brand-300 mt-0.5 truncate">{holiday.name}</span>}
             </button>
           );
         })}

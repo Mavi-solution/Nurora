@@ -104,7 +104,7 @@ export default async function AttendancePage({
                       <td className="px-3 py-3 tabular-nums text-muted">
                         {outAt
                           ? outAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                          : <span className="text-emerald-700 dark:text-emerald-300">still in</span>}
+                          : <span className="text-sage-700 dark:text-sage-300">still in</span>}
                       </td>
                       <td className="px-5 py-3 text-right tabular-nums">
                         {mins != null ? `${Math.floor(mins / 60)}h ${mins % 60}m` : "—"}

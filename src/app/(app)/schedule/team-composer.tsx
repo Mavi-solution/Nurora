@@ -142,7 +142,7 @@ export function TeamComposer({
         )}
 
         {sent && (
-          <p className="mb-2 text-[12px] text-emerald-700 dark:text-emerald-300 bg-card border border-hairline rounded-xl px-3 py-2">
+          <p className="mb-2 text-[12px] text-sage-700 dark:text-sage-300 bg-card border border-hairline rounded-xl px-3 py-2">
             {sent}
           </p>
         )}
