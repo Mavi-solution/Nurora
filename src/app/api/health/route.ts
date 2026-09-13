@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { misprefixedVars } from "@/lib/supabase/env";
+import { misprefixedVars, serviceRoleKey } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  // Runtime read: this one may legitimately be a Vercel Secret.
+  const service = serviceRoleKey();
 
   const checks: Record<string, unknown> = {
     env: {

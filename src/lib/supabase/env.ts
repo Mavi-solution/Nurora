@@ -91,3 +91,23 @@ export function misprefixedVars(): string[] {
     .filter(([, plain, prefixed]) => plain?.trim() && !prefixed?.trim())
     .map(([name]) => `${name} is set but NEXT_PUBLIC_${name} is not`);
 }
+
+/**
+ * The service-role key, read at RUNTIME rather than inlined.
+ *
+ * A literal process.env.X is substituted by the bundler when the bundle
+ * is compiled, so a value the build cannot see becomes `undefined`
+ * forever — which is what happens to a variable stored as a Secret on
+ * Vercel, since secrets are withheld from the build step. A computed
+ * key is never substituted, so this reads the live environment and the
+ * key can stay a Secret where it belongs.
+ *
+ * This works only because the key is server-only. The NEXT_PUBLIC_
+ * values genuinely must be available at build time: inlining is the
+ * only way their value ever reaches the browser, so they cannot be
+ * Secrets.
+ */
+export function serviceRoleKey(): string | undefined {
+  const name = "SUPABASE_SERVICE_ROLE_KEY";
+  return process.env[name]?.trim() || undefined;
+}

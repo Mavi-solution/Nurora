@@ -1,12 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
-import { supabaseUrl } from "./env";
+import { serviceRoleKey, supabaseUrl } from "./env";
 
 /**
  * Service-role client. Bypasses RLS — only ever use this from trusted server
  * code (the reminder cron), never from anything a user can reach directly.
  */
 export function createAdminClient() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = serviceRoleKey();
   if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
 
   return createClient(supabaseUrl(), key, {
@@ -21,7 +21,7 @@ export function createAdminClient() {
  * never take a booking down with them.
  */
 export function createAdminClientOrNull() {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (!serviceRoleKey()) return null;
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null;
   return createAdminClient();
 }
