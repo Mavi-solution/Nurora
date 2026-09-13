@@ -39,7 +39,17 @@ try {
 
   /* ---------------------------------------- 1. book -> WhatsApp */
   step("Booking sends the WhatsApp confirmation");
-  const apptId = sql("select id from appointments where status='scheduled' order by starts_at limit 1");
+  // A session can only start on its own day, with the ASSIGNED
+  // counsellor checked in — so the fixture has to satisfy both.
+  const apptId = sql(`
+    select id from appointments
+    where status='scheduled'
+      and (starts_at at time zone 'Asia/Kolkata')::date
+          = (now() at time zone 'Asia/Kolkata')::date
+    order by starts_at limit 1`);
+  if (!apptId) throw new Error("no appointment today in Asia/Kolkata");
+  sql(`insert into staff_shifts (staff_id, checked_in_at)
+       select counsellor_id, now() from appointments where id='${apptId}'`);
   const before = Number(sql("select count(*) from notification_deliveries where kind='appointment_booked'"));
 
   await page.goto(`${APP}/appointments/${apptId}`, { waitUntil: "networkidle" });

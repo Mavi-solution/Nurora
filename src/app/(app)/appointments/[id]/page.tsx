@@ -5,6 +5,7 @@ import { isAdmin, isClinical, isStaff, requireSession } from "@/lib/auth";
 import { formatDateTime, formatDuration, formatMoney, formatTimeRange } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment, Client, Invoice, Profile, SessionNote, TimeEntry } from "@/lib/types";
+import { canStartSession } from "@/lib/business/session-start";
 import { AppointmentActions } from "./actions-panel";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,24 @@ export default async function AppointmentPage({
   const scheduledMinutes = Math.round(
     (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
   );
+
+  // Same rule the schedule board and startSession use: the assigned
+  // counsellor must be checked in, and only today's session may start.
+  const { data: openShift } = await supabase
+    .from("staff_shifts")
+    .select("id")
+    .eq("staff_id", appt.counsellor_id)
+    .is("checked_out_at", null)
+    .maybeSingle();
+
+  const startCheck = canStartSession({
+    status: appt.status,
+    startsAt: appt.starts_at,
+    counsellorTimezone: (counsellor as Profile | null)?.timezone ?? profile.timezone,
+    counsellorOnShift: Boolean(openShift),
+    counsellorName: (counsellor as Profile | null)?.full_name,
+    startedBySelf: appt.counsellor_id === profile.id,
+  });
 
   return (
     <div className="max-w-3xl">
@@ -224,6 +243,7 @@ export default async function AppointmentPage({
             running={running}
             isStaff={staff}
             canRun={isAdmin(profile) || profile.id === appt.counsellor_id}
+            startCheck={startCheck}
             isClinical={clinical}
             sessionNote={sessionNote?.body ?? ""}
           />

@@ -46,6 +46,11 @@ try {
   const firstRow = page.locator('a[href^="/appointments/"]').first();
   const apptId = (await firstRow.getAttribute("href")).split("/").pop();
   const clientPhone = sql(`select c.phone from clients c join appointments a on a.client_id=c.id where a.id='${apptId}'`);
+  // Milestone 3 runs the real timer, which now requires the assigned
+  // counsellor to be checked in for the day.
+  sql(`insert into staff_shifts (staff_id, checked_in_at)
+       select counsellor_id, now() from appointments where id='${apptId}'
+       on conflict do nothing`);
   console.log(`        driving appointment ${apptId} (client phone ${clientPhone})`);
 
   check("five step buttons on the first appointment",

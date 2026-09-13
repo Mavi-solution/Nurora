@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { canStartSession } from "@/lib/business/session-start";
 import { notifyAppointmentEvent } from "@/lib/notify/appointment";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment } from "@/lib/types";
@@ -105,16 +106,41 @@ export async function startSession(appointmentId: string) {
 
   const { data: appt, error: apptError } = await supabase
     .from("appointments")
-    .select("id, counsellor_id, status")
+    .select(
+      `id, counsellor_id, status, starts_at,
+       counsellor:profiles!appointments_counsellor_id_fkey (full_name, timezone)`,
+    )
     .eq("id", appointmentId)
     .single();
 
   if (apptError) return fail(describeDbError(apptError.message, apptError.code));
-  if (appt.status === "completed") return fail("This session is already completed.");
-  if (appt.status === "cancelled") return fail("This session was cancelled.");
   if (!profileIsAdmin(profile) && appt.counsellor_id !== profile.id) {
     return fail("Only the assigned counsellor can start this session.");
   }
+
+  const counsellor = (Array.isArray(appt.counsellor) ? appt.counsellor[0] : appt.counsellor) as
+    | { full_name: string; timezone: string }
+    | null;
+
+  // The ASSIGNED counsellor's attendance is what matters — they deliver
+  // the session, whoever happens to press the button.
+  const { data: openShift } = await supabase
+    .from("staff_shifts")
+    .select("id")
+    .eq("staff_id", appt.counsellor_id)
+    .is("checked_out_at", null)
+    .maybeSingle();
+
+  const allowed = canStartSession({
+    status: appt.status as string,
+    startsAt: appt.starts_at as string,
+    counsellorTimezone: counsellor?.timezone ?? "Asia/Kolkata",
+    counsellorOnShift: Boolean(openShift),
+    counsellorName: counsellor?.full_name,
+    startedBySelf: appt.counsellor_id === profile.id,
+  });
+
+  if (!allowed.ok) return fail(allowed.reason);
 
   const { error } = await supabase.from("time_entries").insert({
     appointment_id: appointmentId,

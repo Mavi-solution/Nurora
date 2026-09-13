@@ -25,6 +25,7 @@ export function AppointmentActions({
   canRun,
   isClinical,
   sessionNote,
+  startCheck,
 }: {
   appointmentId: string;
   status: AppointmentStatus;
@@ -33,6 +34,8 @@ export function AppointmentActions({
   canRun: boolean;
   isClinical: boolean;
   sessionNote: string;
+  /** Why the session cannot start yet, from business/session-start.ts. */
+  startCheck: { ok: true } | { ok: false; reason: string };
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -106,13 +109,21 @@ export function AppointmentActions({
                 End session
               </Button>
             ) : (
-              <Button
-                className="w-full"
-                disabled={!canRun || pending}
-                onClick={() => run(() => startSession(appointmentId))}
-              >
-                Start session
-              </Button>
+              <>
+                <Button
+                  className="w-full"
+                  disabled={!canRun || pending || !startCheck.ok}
+                  title={startCheck.ok ? undefined : startCheck.reason}
+                  onClick={() => run(() => startSession(appointmentId))}
+                >
+                  Start session
+                </Button>
+                {canRun && !startCheck.ok && (
+                  <p className="text-[12px] text-amber-700 dark:text-amber-300 mt-2 leading-relaxed">
+                    {startCheck.reason}
+                  </p>
+                )}
+              </>
             )
           )}
 

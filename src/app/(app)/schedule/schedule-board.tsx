@@ -24,6 +24,7 @@ import type {
 import { BookingDialog } from "./booking-dialog";
 import { MilestoneTrack } from "./milestone-track";
 import { milestoneProgress } from "@/lib/business/milestones";
+import { canStartSession } from "@/lib/business/session-start";
 import { TeamComposer } from "./team-composer";
 
 export function ScheduleBoard({
@@ -535,6 +536,10 @@ function LaneCard({
               canRun={canRun}
               pending={pending}
               tagById={tagById}
+              counsellorOnShift={lane.isOnShift}
+              counsellorTimezone={counsellor.timezone}
+              counsellorName={counsellor.full_name}
+              viewerId={viewer.id}
               onStart={onStart}
               onEnd={onEnd}
             />
@@ -580,6 +585,10 @@ function AppointmentLine({
   canRun,
   pending,
   tagById,
+  counsellorOnShift,
+  counsellorTimezone,
+  counsellorName,
+  viewerId,
   onStart,
   onEnd,
 }: {
@@ -588,12 +597,27 @@ function AppointmentLine({
   canRun: boolean;
   pending: boolean;
   tagById: Map<string, AppointmentTag>;
+  counsellorOnShift: boolean;
+  counsellorTimezone: string;
+  counsellorName: string;
+  viewerId: string;
   onStart: (a: AppointmentRow) => void;
   onEnd: (id: string) => void;
 }) {
   const running = appointment.time_entries.find((e) => e.ended_at === null);
   const cancelled = appointment.status === "cancelled";
   const completed = appointment.status === "completed";
+
+  // Mirrors the server rule exactly: same function, same answer, so the
+  // button can never offer something startSession will refuse.
+  const startCheck = canStartSession({
+    status: appointment.status,
+    startsAt: appointment.starts_at,
+    counsellorTimezone,
+    counsellorOnShift,
+    counsellorName,
+    startedBySelf: appointment.counsellor_id === viewerId,
+  });
 
   const clientPhone = appointment.client?.phone ?? null;
   const tags = (appointment.tag_ids ?? [])
@@ -702,16 +726,28 @@ function AppointmentLine({
       ) : cancelled ? (
         <span className="text-[12px] text-muted shrink-0">Cancelled</span>
       ) : (
-        <Button
-          size="sm"
-          disabled={!canRun || pending}
-          title={canRun ? undefined : "Only the assigned counsellor can start this session"}
-          onClick={() => onStart(appointment)}
-          className="shrink-0"
-        >
-          <PlayIcon />
-          Start
-        </Button>
+        <span className="shrink-0 text-right">
+          <Button
+            size="sm"
+            disabled={!canRun || pending || !startCheck.ok}
+            title={
+              !canRun
+                ? "Only the assigned counsellor can start this session"
+                : startCheck.ok
+                  ? undefined
+                  : startCheck.reason
+            }
+            onClick={() => onStart(appointment)}
+          >
+            <PlayIcon />
+            Start
+          </Button>
+          {canRun && !startCheck.ok && (
+            <span className="block text-[11px] text-amber-700 dark:text-amber-300 mt-1 max-w-44">
+              {startCheck.reason}
+            </span>
+          )}
+        </span>
       )}
     </div>
 
