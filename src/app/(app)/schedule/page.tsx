@@ -1,4 +1,3 @@
-import { listAppointmentTags, listServices } from "@/lib/actions/services";
 import { listStaffMates } from "@/lib/actions/team";
 import { CLINICIAN_ROLES, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -9,6 +8,7 @@ import {
   zonedTimeToUtc,
 } from "@/lib/time";
 import type {
+  AppointmentTag,
   AppointmentRow,
   AvailabilityException,
   AvailabilityRule,
@@ -16,6 +16,7 @@ import type {
   CounsellorSummary,
   Invoice,
   ScheduleLane,
+  Service,
   TimeEntry,
 } from "@/lib/types";
 import { ScheduleBoard } from "./schedule-board";
@@ -56,6 +57,9 @@ export default async function SchedulePage({
     { data: exceptionRows },
     { data: openShiftRows },
     { data: clientRows },
+    { data: serviceRows },
+    { data: tagRows },
+    mates,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -85,6 +89,23 @@ export default async function SchedulePage({
       .select("id, full_name, age, email, phone, user_id")
       .eq("is_active", true)
       .order("full_name"),
+    // Queried directly rather than through listServices/listAppointmentTags:
+    // those re-run requireStaffProfile(), and an extra auth.getUser()
+    // round-trip per call is real latency on a page that reloads every
+    // time the date changes.
+    supabase
+      .from("services")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("name"),
+    supabase
+      .from("appointment_tags")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("label"),
+    listStaffMates(),
   ]);
 
   const counsellors = (counsellorRows ?? []) as CounsellorSummary[];
@@ -164,14 +185,8 @@ export default async function SchedulePage({
     (s) => s.staff_id === profile.id,
   );
 
-  // Who the floating composer can send a private line to.
-  const mates = await listStaffMates();
-
-  // The price list and tag labels the booking dialog offers.
-  const [services, tags] = await Promise.all([
-    listServices(),
-    listAppointmentTags(),
-  ]);
+  const services = (serviceRows ?? []) as Service[];
+  const tags = (tagRows ?? []) as AppointmentTag[];
 
   return (
     <ScheduleBoard

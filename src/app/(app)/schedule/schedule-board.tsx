@@ -64,6 +64,7 @@ export function ScheduleBoard({
     startsAt?: string;
   } | null>(null);
   const [pending, startTransition] = useTransition();
+  const [navigating, startNav] = useTransition();
 
   const tz = profile.timezone;
 
@@ -74,13 +75,22 @@ export function ScheduleBoard({
     [tags],
   );
 
-  function go(next: Partial<{ date: string; counsellor: string }>) {
+  /** The URL a given change would navigate to. */
+  function hrefFor(next: Partial<{ date: string; counsellor: string }>) {
     const search = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(next)) {
       if (v === "all" && k === "counsellor") search.delete(k);
-      else search.set(k, v);
+      else search.set(k, v as string);
     }
-    router.push(`/schedule?${search.toString()}`);
+    return `/schedule?${search.toString()}`;
+  }
+
+  // Navigation runs inside a transition so `navigating` flips the moment
+  // a date is clicked. Without it the whole page sat still for the length
+  // of the server round-trip and the click felt ignored.
+  function go(next: Partial<{ date: string; counsellor: string }>) {
+    const href = hrefFor(next);
+    startNav(() => router.push(href));
   }
 
   function onCheckIn() {
@@ -150,6 +160,7 @@ export function ScheduleBoard({
         expanded={expanded}
         onToggleExpanded={() => setExpanded((v) => !v)}
         onPick={(d) => go({ date: d })}
+        hrefFor={(d) => hrefFor({ date: d })}
       />
 
       {/* -------------------------------------------- day heading */}
@@ -289,12 +300,14 @@ function DateStrip({
   expanded,
   onToggleExpanded,
   onPick,
+  hrefFor,
 }: {
   dateKey: string;
   todayKey: string;
   expanded: boolean;
   onToggleExpanded: () => void;
   onPick: (dateKey: string) => void;
+  hrefFor: (dateKey: string) => string;
 }) {
   // The selected day sits in the middle of the strip.
   const week = useMemo(
@@ -324,6 +337,7 @@ function DateStrip({
             selected={key === dateKey}
             isToday={key === todayKey}
             onPick={onPick}
+            href={hrefFor(key)}
           />
         ))}
       </div>
@@ -342,11 +356,15 @@ function DateStrip({
               key === null ? (
                 <span key={`pad-${i}`} />
               ) : (
-                <button
+                <Link
                   key={key}
-                  type="button"
-                  onClick={() => onPick(key)}
-                  className={`h-9 rounded-lg text-[13px] tabular-nums transition-colors ${
+                  href={hrefFor(key)}
+                  prefetch
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onPick(key);
+                  }}
+                  className={`h-9 grid place-items-center rounded-lg text-[13px] tabular-nums transition-colors ${
                     key === dateKey
                       ? "bg-brand-600 text-white font-semibold"
                       : key === todayKey
@@ -355,7 +373,7 @@ function DateStrip({
                   }`}
                 >
                   {Number(key.slice(8))}
-                </button>
+                </Link>
               ),
             )}
           </div>
@@ -394,19 +412,29 @@ function DayCell({
   selected,
   isToday,
   onPick,
+  href,
 }: {
   dateKey: string;
   selected: boolean;
   isToday: boolean;
   onPick: (d: string) => void;
+  /** A real href so Next prefetches the day on hover — the click then
+   *  renders from an already-fetched payload instead of waiting. */
+  href: string;
 }) {
   const day = Number(dateKey.slice(8));
   const weekday = WEEKDAYS[weekdayOf(dateKey)].slice(0, 3);
 
   return (
-    <button
-      type="button"
-      onClick={() => onPick(dateKey)}
+    <Link
+      href={href}
+      prefetch
+      onClick={(e) => {
+        // Handled through the transition so the board can show it is
+        // working the instant the day is tapped.
+        e.preventDefault();
+        onPick(dateKey);
+      }}
       aria-current={selected ? "date" : undefined}
       className={`flex flex-col items-center py-2 rounded-xl transition-all ${
         selected ? "bg-card border border-hairline shadow-card" : "hover:bg-card-muted"
@@ -433,7 +461,7 @@ function DayCell({
           }`}
         />
       )}
-    </button>
+    </Link>
   );
 }
 
@@ -781,6 +809,7 @@ function StartSessionDialog({
   onError: (message: string) => void;
 }) {
   const [pending, startTransition] = useTransition();
+  const [navigating, startNav] = useTransition();
 
   function confirm() {
     if (!appointment) return;
