@@ -24,7 +24,9 @@ type ReminderInput = {
   party: ReminderParty;
 };
 
-const BRAND = "#2f6f6b";
+/* Matches --color-brand-600 in globals.css. Email cannot read CSS
+ * variables, so this is the one place the value is repeated. */
+const BRAND = "#3d5b59";
 
 export function reminderSubject(i: ReminderInput): string {
   const who = i.party === "counsellor" ? i.otherPartyName : `with ${i.otherPartyName}`;

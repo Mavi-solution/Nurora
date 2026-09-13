@@ -64,7 +64,7 @@ try {
     };
   });
   check("stylesheet loaded", styling.sheets > 0, `${styling.sheets} sheets`);
-  check("brand colour token resolves", styling.brand === "#2f6f6b", styling.brand || "(empty)");
+  check("brand colour token resolves", styling.brand === "#3d5b59", styling.brand || "(empty)");
   check("--font-sans resolves", styling.sans.length > 0, styling.sans || "(empty)");
   check("--font-display resolves", styling.display.length > 0, styling.display || "(empty)");
   check("body renders in Inter", styling.bodyFont === "Inter", styling.bodyFont);
