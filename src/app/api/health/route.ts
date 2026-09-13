@@ -32,6 +32,39 @@ export async function GET() {
         process.env.BILLING_ADVANCE_AT_OR_BELOW || process.env.BILLING_ADVANCE_ABOVE,
       ),
     },
+    // Build-time vs runtime, per variable.
+    //
+    // A static process.env.X is substituted by the bundler when the
+    // bundle is built; a computed lookup is not, and reads the live
+    // environment. When "build" is absent while "runtime" has a value,
+    // the variable existed when the server started but NOT when the
+    // bundle was compiled — which is exactly what Vercel's Sensitive
+    // flag does, since those are withheld from the build step. A
+    // NEXT_PUBLIC_ variable cannot work that way: inlining at build is
+    // the only way its value ever reaches the browser.
+    buildVsRuntime: Object.fromEntries(
+      (
+        [
+          ["NEXT_PUBLIC_SUPABASE_URL", url],
+          ["NEXT_PUBLIC_SUPABASE_ANON_KEY", anon],
+          ["SUPABASE_SERVICE_ROLE_KEY", service],
+        ] as const
+      ).map(([name, atBuild]) => {
+        // Computed key: never substituted, so this is the live value.
+        const atRuntime = process.env[String(name)];
+        return [
+          name,
+          {
+            build: atBuild ? `${atBuild.length} chars` : "absent",
+            runtime: atRuntime?.trim()
+              ? `${atRuntime.trim().length} chars`
+              : atRuntime === ""
+                ? "present but EMPTY"
+                : "absent",
+          },
+        ];
+      }),
+    ),
     // Every relevant variable NAME the running process can see. Names
     // only — never values — so a typo, a wrong prefix, or a variable
     // that the platform is not injecting at all becomes obvious without
