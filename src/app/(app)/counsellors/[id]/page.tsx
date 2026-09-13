@@ -1,7 +1,8 @@
 import { notFound, redirect } from "next/navigation";
+import { loadPermissions } from "@/lib/actions/settings-admin";
 import { canManagePractice, isAdmin, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile, Specialism } from "@/lib/types";
+import type { Benefit, Profile, Specialism } from "@/lib/types";
 import { CounsellorEditor } from "./counsellor-editor";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,14 @@ export default async function CounsellorPage({
 
   if (!counsellor) notFound();
 
+  // Absent row means everything is on, so this always returns a full set.
+  const permissions = await loadPermissions(id);
+  const { data: benefits } = await supabase
+    .from("benefits")
+    .select("*")
+    .eq("counsellor_id", id)
+    .order("granted_on", { ascending: false });
+
   const appointments = stats ?? [];
 
   return (
@@ -57,6 +66,8 @@ export default async function CounsellorPage({
       // reception manages the diary, not who can do what.
       viewerIsAdmin={isAdmin(profile)}
       viewerId={profile.id}
+      permissions={permissions}
+      benefits={(benefits ?? []) as Benefit[]}
       appointmentCount={appointments.length}
       upcomingCount={appointments.filter((a) => a.status === "scheduled").length}
     />

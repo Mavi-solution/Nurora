@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { advanceRequirement } from "@/lib/business/billing";
 import { bookingFormSchema } from "@/lib/business/booking-form";
-import { billingSettings } from "@/lib/business/settings";
+import { billingSettingsFromClinic } from "@/lib/business/clinic-settings";
 import { toE164 } from "@/lib/notify/phone";
 import { createClient } from "@/lib/supabase/server";
 import type { InterestRow } from "@/lib/types";
@@ -131,10 +131,12 @@ export async function saveBooking(input: unknown) {
     startsAt.getTime() + service.duration_minutes * 60_000,
   );
 
+  // Tiers come from the clinic's settings row, editable by an admin,
+  // rather than from environment variables needing a redeploy.
   const advanceCents = advanceRequirement(
     service.price_cents,
     v.mode,
-    billingSettings(),
+    await billingSettingsFromClinic(),
   );
 
   const { data: appointment, error } = await supabase

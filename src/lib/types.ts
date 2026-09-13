@@ -39,6 +39,14 @@ export type Profile = {
   notify_whatsapp: boolean;
   /** Languages this counsellor can hold a session in. */
   languages: string[];
+  /** Freelance counsellor: paid per completed session, not salaried. */
+  is_nulancer: boolean;
+  nulancer_individual_cents: number | null;
+  nulancer_couple_cents: number | null;
+  /** Probation window on an issued temporary password. */
+  tpin_expires_at: string | null;
+  signup_completed_at: string | null;
+  must_change_password: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -305,6 +313,105 @@ export type BricRow = {
   status: string;
   detail: string;
   href: string;
+};
+
+/** The clinic's one configuration row. */
+export type ClinicSettings = {
+  id: boolean;
+  practice_name: string;
+  advance_tier_threshold_cents: number;
+  advance_at_or_below_cents: number;
+  advance_above_cents: number;
+  full_payment_modes: string[];
+  included_minutes: number;
+  grace_minutes: number;
+  extension_block_minutes: number;
+  extension_block_cents: number;
+  grace_mode: "gate" | "deduct";
+  clinic_latitude: number | null;
+  clinic_longitude: number | null;
+  check_in_radius_m: number;
+  check_out_radius_m: number;
+  geofence_enforced: boolean;
+  confirmation_template: string | null;
+  signin_quote: string | null;
+  designer_credit_url: string | null;
+  nulancer_individual_cents: number;
+  nulancer_couple_cents: number;
+  review_monthly_target: number;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+/** Per-feature switches. An absent row means everything is on. */
+export type CounsellorPermissions = {
+  counsellor_id: string;
+  attendance: boolean;
+  nubills: boolean;
+  persona: boolean;
+  bric: boolean;
+  reviews: boolean;
+  follow_ups: boolean;
+  my_summary: boolean;
+  week_offs: boolean;
+  updated_at: string;
+};
+
+export type PermissionKey = keyof Omit<
+  CounsellorPermissions,
+  "counsellor_id" | "updated_at"
+>;
+
+export type Review = {
+  id: string;
+  counsellor_id: string | null;
+  client_id: string | null;
+  client_name: string;
+  rating: number | null;
+  body: string | null;
+  review_url: string | null;
+  reviewed_on: string;
+  logged_by: string | null;
+  created_at: string;
+};
+
+/** "Send this thing to this client." */
+export type FollowUp = {
+  id: string;
+  client_id: string | null;
+  counsellor_id: string | null;
+  what: string;
+  due_on: string;
+  completed_at: string | null;
+  /** How it was finished — 'whatsapp' means it was actually sent. */
+  completed_via: "whatsapp" | "manual" | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Commitment = {
+  id: string;
+  owner_id: string;
+  title: string;
+  detail: string | null;
+  due_on: string | null;
+  done_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Benefit = {
+  id: string;
+  counsellor_id: string;
+  name: string;
+  detail: string | null;
+  value_cents: number | null;
+  granted_on: string;
+  expires_on: string | null;
+  granted_by: string | null;
+  created_at: string;
 };
 
 export type LeaveKind = "planned" | "sick" | "unpaid" | "auto";

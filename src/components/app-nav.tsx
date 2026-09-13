@@ -76,8 +76,13 @@ export function AppNav({
         ...(clinical
           ? [{ href: "/nubills", label: "Nubills", icon: <ReceiptIcon /> }]
           : []),
+        { href: "/follow-ups", label: "Follow-up & Commitments", icon: <CheckIcon /> },
+        { href: "/reviews", label: "Google Reviews", icon: <StarIcon /> },
         ...(manages
           ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }]
+          : []),
+        ...(manages
+          ? [{ href: "/clinic-settings", label: "Clinic settings", icon: <SlidersIcon /> }]
           : []),
         ...(manages
           ? [{ href: "/services", label: "Services & pricing", icon: <TagIcon /> }]
@@ -236,6 +241,17 @@ const ClockIcon = () => (
   <svg {...icon}>
     <circle cx="12" cy="12" r="9" />
     <path d="M12 7v5l3 2" />
+  </svg>
+);
+const CheckIcon = () => (
+  <svg {...icon}>
+    <path d="M9 11l3 3 8-8" />
+    <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
+  </svg>
+);
+const StarIcon = () => (
+  <svg {...icon}>
+    <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9Z" />
   </svg>
 );
 const GridIcon = () => (

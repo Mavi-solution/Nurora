@@ -11,7 +11,25 @@ import {
   resetCounsellorPassword, setCounsellorActive, updateCounsellor,
 } from "@/lib/actions/counsellors";
 import { setUserAdmin, setUserRole } from "@/lib/actions/profile";
-import type { Profile, Specialism, UserRole } from "@/lib/types";
+import {
+  grantBenefit, revokeBenefit, setCounsellorPermission, setNulancer,
+} from "@/lib/actions/settings-admin";
+import { formatMoney } from "@/lib/format";
+import type {
+  Benefit, CounsellorPermissions, PermissionKey, Profile, Specialism, UserRole,
+} from "@/lib/types";
+
+/** The per-feature switches, with what each one hides. */
+const PERMISSIONS: { key: PermissionKey; label: string }[] = [
+  { key: "attendance", label: "Attendance" },
+  { key: "nubills", label: "Nubills" },
+  { key: "persona", label: "Persona" },
+  { key: "bric", label: "BRIC" },
+  { key: "reviews", label: "Google Reviews" },
+  { key: "follow_ups", label: "Follow-up & Commitments" },
+  { key: "my_summary", label: "My Summary" },
+  { key: "week_offs", label: "Week-offs" },
+];
 
 const ROLES: { value: UserRole; label: string; hint: string }[] = [
   { value: "counsellor", label: "Counsellor", hint: "Runs sessions and holds a lane on the schedule." },
@@ -31,13 +49,15 @@ const ROLES: { value: UserRole; label: string; hint: string }[] = [
  */
 export function CounsellorEditor({
   counsellor, specialisms, selectedSpecialismIds, viewerIsAdmin, viewerId,
-  appointmentCount, upcomingCount,
+  permissions, benefits, appointmentCount, upcomingCount,
 }: {
   counsellor: Profile;
   specialisms: Specialism[];
   selectedSpecialismIds: string[];
   viewerIsAdmin: boolean;
   viewerId: string;
+  permissions: CounsellorPermissions;
+  benefits: Benefit[];
   appointmentCount: number;
   upcomingCount: number;
 }) {
@@ -65,6 +85,23 @@ export function CounsellorEditor({
   const [adminFlag, setAdminFlag] = useState(counsellor.is_admin);
   useEffect(() => setRole(counsellor.role), [counsellor.role]);
   useEffect(() => setAdminFlag(counsellor.is_admin), [counsellor.is_admin]);
+
+  const [perms, setPerms] = useState(permissions);
+  useEffect(() => setPerms(permissions), [permissions]);
+
+  const [isNulancer, setIsNulancer] = useState(counsellor.is_nulancer);
+  useEffect(() => setIsNulancer(counsellor.is_nulancer), [counsellor.is_nulancer]);
+  const [rateIndividual, setRateIndividual] = useState(
+    counsellor.nulancer_individual_cents != null
+      ? String(counsellor.nulancer_individual_cents / 100) : "",
+  );
+  const [rateCouple, setRateCouple] = useState(
+    counsellor.nulancer_couple_cents != null
+      ? String(counsellor.nulancer_couple_cents / 100) : "",
+  );
+  const [benefitOpen, setBenefitOpen] = useState(false);
+  const [benefitName, setBenefitName] = useState("");
+  const [benefitDetail, setBenefitDetail] = useState("");
 
   const [pwOpen, setPwOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -291,6 +328,152 @@ export function CounsellorEditor({
           </div>
         </Card>
       )}
+
+      {/* ------------------------------------------------ permissions */}
+      {viewerIsAdmin && (
+        <Card className="mt-4">
+          <CardHeader
+            title="Feature access"
+            description="Switch a feature off and it disappears from their drawer. Everything is on unless switched off."
+          />
+          <div className="px-5 py-4 grid sm:grid-cols-2 gap-3">
+            {PERMISSIONS.map((p) => (
+              <label key={p.key} className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={perms[p.key]}
+                  disabled={pending}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setPerms((prev: CounsellorPermissions) => ({ ...prev, [p.key]: next }));
+                    run(
+                      () => setCounsellorPermission(counsellor.id, p.key, next),
+                      `${p.label} ${next ? "enabled" : "hidden"}.`,
+                      () => setPerms((prev: CounsellorPermissions) => ({ ...prev, [p.key]: !next })),
+                    );
+                  }}
+                  className="size-4 rounded accent-brand-600"
+                />
+                <span className="text-[13px]">{p.label}</span>
+              </label>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* -------------------------------------------------- NuLancer */}
+      {viewerIsAdmin && (
+        <Card className="mt-4">
+          <CardHeader
+            title="NuLancer"
+            description="A freelance counsellor paid per completed session rather than salaried."
+          />
+          <div className="px-5 py-4 space-y-4">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isNulancer}
+                disabled={pending}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setIsNulancer(next);
+                  run(
+                    () => setNulancer(counsellor.id, {
+                      isNulancer: next,
+                      individual: rateIndividual ? Number(rateIndividual) : undefined,
+                      couple: rateCouple ? Number(rateCouple) : undefined,
+                    }),
+                    next ? "Marked as a NuLancer." : "No longer a NuLancer.",
+                    () => setIsNulancer(!next),
+                  );
+                }}
+                className="size-4 rounded accent-brand-600"
+              />
+              <span className="text-[13px]">This counsellor is a NuLancer</span>
+            </label>
+
+            {isNulancer && (
+              <>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Field label="Individual session (₹)">
+                    <input type="number" min={0} value={rateIndividual}
+                      onChange={(e) => setRateIndividual(e.target.value)} className={fieldClass} />
+                  </Field>
+                  <Field label="Couple session (₹)">
+                    <input type="number" min={0} value={rateCouple}
+                      onChange={(e) => setRateCouple(e.target.value)} className={fieldClass} />
+                  </Field>
+                </div>
+                <Button variant="secondary" size="sm" disabled={pending}
+                  onClick={() => run(() => setNulancer(counsellor.id, {
+                    isNulancer: true,
+                    individual: rateIndividual ? Number(rateIndividual) : undefined,
+                    couple: rateCouple ? Number(rateCouple) : undefined,
+                  }), "Rates saved.")}>
+                  Save rates
+                </Button>
+
+                <div className="pt-3 border-t border-hairline">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <span className="text-[13px] font-medium">Special benefits</span>
+                    <Button variant="secondary" size="sm" onClick={() => setBenefitOpen(true)}>
+                      Grant a benefit
+                    </Button>
+                  </div>
+                  {benefits.length === 0 ? (
+                    <p className="text-[13px] text-muted">None granted.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {benefits.map((b) => (
+                        <li key={b.id} className="flex items-center gap-2 text-[13px]">
+                          <span className="flex-1">
+                            {b.name}
+                            {b.value_cents != null && (
+                              <span className="text-muted"> · {formatMoney(b.value_cents)}</span>
+                            )}
+                            {b.expires_on && <span className="text-faint"> · to {b.expires_on}</span>}
+                          </span>
+                          <button type="button" disabled={pending}
+                            onClick={() => run(() => revokeBenefit(b.id), "Benefit revoked.")}
+                            className="text-[12px] text-faint hover:text-red-600">
+                            Revoke
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      )}
+
+      <Dialog
+        open={benefitOpen}
+        onClose={() => setBenefitOpen(false)}
+        title="Grant a benefit"
+        footer={
+          <>
+            <Button variant="secondary" className="flex-1" onClick={() => setBenefitOpen(false)}>Cancel</Button>
+            <Button className="flex-1" disabled={pending || benefitName.trim().length < 2}
+              onClick={() => run(() => grantBenefit({
+                counsellorId: counsellor.id, name: benefitName, detail: benefitDetail,
+              }), "Benefit granted.")}>
+              Grant
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Benefit" required>
+            <input value={benefitName} onChange={(e) => setBenefitName(e.target.value)} className={fieldClass} placeholder="Supervision hours" />
+          </Field>
+          <Field label="Detail">
+            <textarea value={benefitDetail} onChange={(e) => setBenefitDetail(e.target.value)} rows={3} className={`${fieldClass} resize-y`} />
+          </Field>
+        </div>
+      </Dialog>
 
       <Dialog
         open={pwOpen}
