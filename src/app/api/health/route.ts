@@ -32,6 +32,20 @@ export async function GET() {
         process.env.BILLING_ADVANCE_AT_OR_BELOW || process.env.BILLING_ADVANCE_ABOVE,
       ),
     },
+    // Every relevant variable NAME the running process can see. Names
+    // only — never values — so a typo, a wrong prefix, or a variable
+    // that the platform is not injecting at all becomes obvious without
+    // anyone reading a secret.
+    //
+    // A NEXT_PUBLIC_ name that appears HERE but reads MISSING above was
+    // present at runtime yet absent when the bundle was built — which is
+    // what happens when it is marked Sensitive on Vercel, since those
+    // are withheld from the build step.
+    visibleNames: Object.keys(process.env)
+      .filter((k) =>
+        /^(NEXT_PUBLIC_|SUPABASE_|TWILIO_|RESEND_|CRON_|BILLING_|NOTIFY_)/.test(k),
+      )
+      .sort(),
     // NEXT_PUBLIC_* are inlined when the bundle is built, so a value
     // added AFTER the last build will not be present until you redeploy.
     buildStamp: {
