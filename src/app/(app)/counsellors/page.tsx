@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Avatar, Card, EmptyState, Pill } from "@/components/ui";
 import { ButtonLink } from "@/components/ui";
@@ -75,7 +76,12 @@ export default async function CounsellorsPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-[15px]">{c.full_name}</p>
+                        <Link
+                          href={`/counsellors/${c.id}`}
+                          className="font-medium text-[15px] hover:underline underline-offset-2"
+                        >
+                          {c.full_name}
+                        </Link>
                         {!c.is_active && <Pill>Not taking bookings</Pill>}
                         {c.is_admin && <Pill>Admin</Pill>}
                       </div>
@@ -105,6 +111,12 @@ export default async function CounsellorsPage() {
                     </div>
 
                     <div className="text-right shrink-0">
+                      <Link
+                        href={`/counsellors/${c.id}`}
+                        className="block text-[12px] text-brand-700 dark:text-brand-300 hover:underline mb-1"
+                      >
+                        Edit
+                      </Link>
                       <p className="text-[14px] font-medium tabular-nums">
                         {formatMoney(c.default_session_fee_cents, c.currency)}
                       </p>
