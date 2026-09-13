@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { REF_TAG } from "@/lib/data/reference";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -108,6 +109,7 @@ export async function createCounsellor(input: unknown) {
     );
   }
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/counsellors");
   revalidatePath("/schedule");
   revalidatePath("/book");
@@ -151,6 +153,7 @@ export async function updateCounsellor(counsellorId: string, input: unknown) {
     if (!result.ok) return result;
   }
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/counsellors");
   revalidatePath(`/counsellors/${counsellorId}`);
   revalidatePath("/book");
@@ -184,6 +187,7 @@ export async function setCounsellorSpecialisms(
     if (error) return fail(describeDbError(error.message, error.code));
   }
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/counsellors");
   revalidatePath("/book");
   return { ok: true as const };
@@ -200,6 +204,7 @@ export async function setCounsellorActive(counsellorId: string, isActive: boolea
 
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/counsellors");
   revalidatePath("/schedule");
   return { ok: true as const };

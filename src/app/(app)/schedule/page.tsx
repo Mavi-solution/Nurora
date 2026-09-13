@@ -1,4 +1,5 @@
 import { listStaffMates } from "@/lib/actions/team";
+import { getAppointmentTags, getCounsellors, getServices } from "@/lib/data/reference";
 import { CLINICIAN_ROLES, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -51,24 +52,17 @@ export default async function SchedulePage({
   const dayEnd = zonedTimeToUtc(ny, nm, nd, 0, 0, tz);
 
   const [
-    { data: counsellorRows },
+    counsellors,
     { data: appointmentRows },
     { data: ruleRows },
     { data: exceptionRows },
     { data: openShiftRows },
     { data: clientRows },
-    { data: serviceRows },
-    { data: tagRows },
+    services,
+    tags,
     mates,
   ] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select(
-        "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency",
-      )
-      .in("role", CLINICIAN_ROLES)
-      .eq("is_active", true)
-      .order("full_name"),
+    getCounsellors(),
     supabase
       .from("appointments")
       .select("*, client:clients(id, full_name, age, email, phone, user_id)")
@@ -89,26 +83,14 @@ export default async function SchedulePage({
       .select("id, full_name, age, email, phone, user_id")
       .eq("is_active", true)
       .order("full_name"),
-    // Queried directly rather than through listServices/listAppointmentTags:
-    // those re-run requireStaffProfile(), and an extra auth.getUser()
-    // round-trip per call is real latency on a page that reloads every
-    // time the date changes.
-    supabase
-      .from("services")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order")
-      .order("name"),
-    supabase
-      .from("appointment_tags")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order")
-      .order("label"),
+    // Reference data, served from the cross-request cache: neither the
+    // price list nor the tag labels change between one date click and
+    // the next.
+    getServices(),
+    getAppointmentTags(),
     listStaffMates(),
   ]);
 
-  const counsellors = (counsellorRows ?? []) as CounsellorSummary[];
   const appointments = (appointmentRows ?? []) as AppointmentRow[];
   const rules = (ruleRows ?? []) as AvailabilityRule[];
   const exceptions = (exceptionRows ?? []) as AvailabilityException[];
@@ -185,8 +167,6 @@ export default async function SchedulePage({
     (s) => s.staff_id === profile.id,
   );
 
-  const services = (serviceRows ?? []) as Service[];
-  const tags = (tagRows ?? []) as AppointmentTag[];
 
   return (
     <ScheduleBoard

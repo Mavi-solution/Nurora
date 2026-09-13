@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { REF_TAG } from "@/lib/data/reference";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -129,6 +130,7 @@ export async function updateSettings(formData: FormData) {
 
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/settings");
   revalidatePath("/", "layout");
   return { ok: true as const };
@@ -148,6 +150,7 @@ export async function setUserRole(
   const { error } = await supabase.from("profiles").update({ role }).eq("id", userId);
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/settings");
   revalidatePath("/schedule");
   return { ok: true as const };
@@ -185,6 +188,7 @@ export async function setUserAdmin(userId: string, isAdmin: boolean) {
 
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath("/settings");
   return { ok: true as const };
 }

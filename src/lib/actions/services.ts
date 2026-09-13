@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { REF_TAG } from "@/lib/data/reference";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { AppointmentTag, Service } from "@/lib/types";
@@ -89,6 +90,7 @@ export async function createService(input: unknown) {
     return fail(describeDbError(error.message, error.code));
   }
 
+  revalidateTag(REF_TAG.services);
   revalidatePath("/services");
   revalidatePath("/schedule");
   revalidatePath("/book");
@@ -125,6 +127,7 @@ export async function updateService(id: string, input: unknown) {
     return fail(describeDbError(error.message, error.code));
   }
 
+  revalidateTag(REF_TAG.services);
   revalidatePath("/services");
   revalidatePath("/schedule");
   revalidatePath("/book");
@@ -169,6 +172,7 @@ export async function deleteService(id: string) {
 
     if (error) return fail(describeDbError(error.message, error.code));
 
+    revalidateTag(REF_TAG.services);
     revalidatePath("/services");
     return {
       ok: true as const,
@@ -182,6 +186,7 @@ export async function deleteService(id: string) {
   const { error } = await supabase.from("services").delete().eq("id", id);
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.services);
   revalidatePath("/services");
   return { ok: true as const, data: { retired: false, message: "Service deleted." } };
 }
@@ -216,6 +221,7 @@ export async function createTag(label: string, abbreviation: string) {
     return fail(describeDbError(error.message, error.code));
   }
 
+  revalidateTag(REF_TAG.appointmentTags);
   revalidatePath("/services");
   return { ok: true as const };
 }
@@ -240,6 +246,7 @@ export async function retireTag(id: string, isActive: boolean) {
 
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.appointmentTags);
   revalidatePath("/services");
   return { ok: true as const };
 }

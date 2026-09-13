@@ -4,6 +4,7 @@ import { Avatar, Card, EmptyState, Pill } from "@/components/ui";
 import { ButtonLink } from "@/components/ui";
 import { CLINICIAN_ROLES, canManagePractice, requireStaff } from "@/lib/auth";
 import { formatMoney } from "@/lib/format";
+import { getSpecialisms } from "@/lib/data/reference";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, Specialism } from "@/lib/types";
 import { NewCounsellorButton } from "./new-counsellor";
@@ -17,7 +18,7 @@ export default async function CounsellorsPage() {
 
   const supabase = await createClient();
 
-  const [{ data: counsellorRows }, { data: specialismRows }, { data: links }] =
+  const [{ data: counsellorRows }, specialisms, { data: links }] =
     await Promise.all([
       supabase
         .from("profiles")
@@ -25,12 +26,11 @@ export default async function CounsellorsPage() {
         .in("role", CLINICIAN_ROLES)
         .order("is_active", { ascending: false })
         .order("full_name"),
-      supabase.from("specialisms").select("*").eq("is_active", true).order("sort_order"),
+      getSpecialisms(),
       supabase.from("counsellor_specialisms").select("counsellor_id, specialism_id"),
     ]);
 
   const counsellors = (counsellorRows ?? []) as Profile[];
-  const specialisms = (specialismRows ?? []) as Specialism[];
   const specialismById = new Map(specialisms.map((s) => [s.id, s]));
 
   const skillsByCounsellor = new Map<string, Specialism[]>();

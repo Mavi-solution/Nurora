@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { getClinicSettings } from "@/lib/data/reference";
 import type { ClinicSettings } from "@/lib/types";
 import type { BillingSettings } from "./billing";
 
@@ -11,13 +11,9 @@ import type { BillingSettings } from "./billing";
  * an admin rather than requiring a redeploy.
  */
 export async function loadClinicSettings(): Promise<ClinicSettings | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("clinic_settings")
-    .select("*")
-    .eq("id", true)
-    .maybeSingle();
-  return (data as ClinicSettings) ?? null;
+  // Through the shared cache — read on nearly every booking and every
+  // check-in, and changed only from the settings screen.
+  return getClinicSettings();
 }
 
 /** Billing rules for business/billing.ts, read from the settings row. */

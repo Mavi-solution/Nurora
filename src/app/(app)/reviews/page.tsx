@@ -1,4 +1,4 @@
-import { loadClinicSettings } from "@/lib/business/clinic-settings";
+import { getClinicSettings, getCounsellors } from "@/lib/data/reference";
 import { CLINICIAN_ROLES, isAdmin, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { CounsellorSummary, Review } from "@/lib/types";
@@ -30,28 +30,21 @@ export default async function ReviewsPage({
   const to = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
 
   const supabase = await createClient();
-  const [{ data: reviews }, { data: counsellors }, settings] = await Promise.all([
+  const [{ data: reviews }, counsellors, settings] = await Promise.all([
     supabase
       .from("reviews")
       .select("*")
       .gte("reviewed_on", from)
       .lte("reviewed_on", to)
       .order("reviewed_on", { ascending: false }),
-    supabase
-      .from("profiles")
-      .select(
-        "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages",
-      )
-      .in("role", CLINICIAN_ROLES)
-      .eq("is_active", true)
-      .order("full_name"),
-    loadClinicSettings(),
+    getCounsellors(),
+    getClinicSettings(),
   ]);
 
   return (
     <ReviewBoard
       reviews={(reviews ?? []) as Review[]}
-      counsellors={(counsellors ?? []) as CounsellorSummary[]}
+      counsellors={counsellors}
       monthKey={monthKey}
       target={settings?.review_monthly_target ?? 0}
       isAdmin={isAdmin(profile)}

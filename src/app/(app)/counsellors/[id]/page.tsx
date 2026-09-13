@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { loadPermissions } from "@/lib/actions/settings-admin";
 import { canManagePractice, isAdmin, requireStaff } from "@/lib/auth";
+import { getSpecialisms } from "@/lib/data/reference";
 import { createClient } from "@/lib/supabase/server";
 import type { Benefit, Profile, Specialism } from "@/lib/types";
 import { CounsellorEditor } from "./counsellor-editor";
@@ -33,10 +34,10 @@ export default async function CounsellorPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: counsellor }, { data: specialisms }, { data: links }, { data: stats }] =
+  const [{ data: counsellor }, specialisms, { data: links }, { data: stats }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", id).maybeSingle(),
-      supabase.from("specialisms").select("*").eq("is_active", true).order("sort_order"),
+      getSpecialisms(),
       supabase.from("counsellor_specialisms").select("specialism_id").eq("counsellor_id", id),
       supabase
         .from("appointments")
@@ -60,7 +61,7 @@ export default async function CounsellorPage({
   return (
     <CounsellorEditor
       counsellor={counsellor as Profile}
-      specialisms={(specialisms ?? []) as Specialism[]}
+      specialisms={specialisms}
       selectedSpecialismIds={(links ?? []).map((l) => l.specialism_id as string)}
       // Only an admin may change roles, admin rights or passwords —
       // reception manages the diary, not who can do what.

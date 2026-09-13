@@ -49,7 +49,12 @@ export async function saveBooking(input: unknown) {
     .eq("id", v.serviceId)
     .maybeSingle();
 
-  if (!service) return fail("That service is no longer on the price list.");
+  if (!service) {
+    return fail(
+      "That service is no longer on the price list — it may have just been " +
+        "changed. Reopen the dialog and pick it again.",
+    );
+  }
   if (!service.is_active) return fail(`${service.name} has been retired.`);
 
   const whatsapp = toE164(v.whatsapp ?? null);

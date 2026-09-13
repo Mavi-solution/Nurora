@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { REF_TAG } from "@/lib/data/reference";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { CounsellorPermissions, PermissionKey } from "@/lib/types";
@@ -102,6 +103,7 @@ export async function updateClinicSettings(input: unknown) {
 
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.clinicSettings);
   revalidatePath("/clinic-settings");
   revalidatePath("/schedule");
   revalidatePath("/book");
@@ -190,6 +192,7 @@ export async function setNulancer(
 
   if (error) return fail(describeDbError(error.message, error.code));
 
+  revalidateTag(REF_TAG.counsellors);
   revalidatePath(`/counsellors/${counsellorId}`);
   revalidatePath("/nulancers");
   return { ok: true as const };
