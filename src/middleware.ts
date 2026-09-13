@@ -1,6 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { misprefixedVars, supabaseConfigured } from "@/lib/supabase/env";
+import {
+  misprefixedVars,
+  supabaseConfigured,
+  supabaseUrlProblem,
+} from "@/lib/supabase/env";
 
 // /api/health must be reachable without a session: it exists to
 // diagnose deployments that cannot authenticate anyone yet.
@@ -41,6 +45,15 @@ export async function middleware(request: NextRequest) {
           "are not set. Set them in your deployment's environment variables " +
           "and redeploy — see DEPLOY.md.",
     );
+    return NextResponse.next({ request });
+  }
+
+  // A present-but-unusable URL passes the check above and then throws
+  // inside @supabase/ssr, which 500s every route. Report it and let the
+  // request through so the app can render its own message.
+  const urlProblem = supabaseUrlProblem();
+  if (urlProblem) {
+    console.error(`[nurora] ${urlProblem}`);
     return NextResponse.next({ request });
   }
 

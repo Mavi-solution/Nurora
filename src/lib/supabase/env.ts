@@ -48,10 +48,46 @@ function required(name: string, value: string | undefined): string {
 
 /** The project URL, e.g. https://abcdefgh.supabase.co */
 export function supabaseUrl(): string {
-  return required(
+  const value = required(
     "NEXT_PUBLIC_SUPABASE_URL",
     process.env.NEXT_PUBLIC_SUPABASE_URL,
   );
+
+  // The database connection string is a different thing entirely, and
+  // putting it here is an easy mistake — the two sit next to each other
+  // in the Supabase dashboard. It matters far more than a bad value:
+  // this variable is NEXT_PUBLIC_, so whatever it holds is compiled into
+  // the browser bundle. A connection string carries the database
+  // password, which would then be served to every visitor.
+  if (/^postgres(ql)?:\/\//i.test(value)) {
+    const ref = value.match(/@db\.([a-z0-9]+)\.supabase\./i)?.[1];
+
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL holds a POSTGRES CONNECTION STRING, not " +
+        "the project API URL.\n\n" +
+        "This is a credential exposure, not just a misconfiguration: " +
+        "NEXT_PUBLIC_ values are compiled into the browser bundle, so the " +
+        "database password in that string was served to every visitor. " +
+        "ROTATE THE DATABASE PASSWORD (Supabase -> Settings -> Database -> " +
+        "Reset database password).\n\n" +
+        (ref
+          ? `The correct value for this project is https://${ref}.supabase.co\n\n`
+          : "The correct value looks like https://<project-ref>.supabase.co\n\n") +
+        "Find it under Settings -> API -> Project URL. The connection " +
+        "string belongs to SUPABASE_DB_URL and is only used by the " +
+        "Supabase CLI and psql — the app never needs it.",
+    );
+  }
+
+  if (!/^https?:\/\//i.test(value)) {
+    throw new Error(
+      `NEXT_PUBLIC_SUPABASE_URL must be an http(s) URL, got "${value.slice(0, 24)}…".\n\n` +
+        "It looks like https://<project-ref>.supabase.co — Supabase " +
+        "dashboard, Settings -> API -> Project URL.",
+    );
+  }
+
+  return value;
 }
 
 /** The anon/publishable key. Safe in the browser; RLS does the guarding. */
@@ -110,4 +146,40 @@ export function misprefixedVars(): string[] {
 export function serviceRoleKey(): string | undefined {
   const name = "SUPABASE_SERVICE_ROLE_KEY";
   return process.env[name]?.trim() || undefined;
+}
+
+/**
+ * Why the configured URL is unusable, or null when it is fine.
+ *
+ * Separate from supabaseUrl() because the middleware must not throw:
+ * an exception there returns 500 for every route including the error
+ * page, so it logs this and lets the request through instead.
+ */
+export function supabaseUrlProblem(): string | null {
+  const value = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!value) return null; // absence is reported separately
+
+  if (/^postgres(ql)?:\/\//i.test(value)) {
+    const ref = value.match(/@db\.([a-z0-9]+)\.supabase\./i)?.[1];
+    return (
+      "NEXT_PUBLIC_SUPABASE_URL holds a POSTGRES CONNECTION STRING, not " +
+      "the project API URL. NEXT_PUBLIC_ values are compiled into the " +
+      "browser bundle, so the database password in it was served to every " +
+      "visitor — ROTATE THE DATABASE PASSWORD now (Supabase -> Settings " +
+      "-> Database -> Reset database password). " +
+      (ref
+        ? `Then set this variable to https://${ref}.supabase.co`
+        : "Then set this variable to https://<project-ref>.supabase.co") +
+      " (Settings -> API -> Project URL)."
+    );
+  }
+
+  if (!/^https?:\/\//i.test(value)) {
+    return (
+      "NEXT_PUBLIC_SUPABASE_URL must be an http(s) URL like " +
+      "https://<project-ref>.supabase.co (Settings -> API -> Project URL)."
+    );
+  }
+
+  return null;
 }
