@@ -150,9 +150,12 @@ export function ScheduleBoard({
           type="button"
           onClick={onCheckIn}
           disabled={checkingIn}
-          aria-pressed={Boolean(checkedIn)}
+          role="switch"
+          aria-checked={Boolean(checkedIn)}
+          aria-label={checkedIn ? "Checked in — tap to check out" : "Tap to check in"}
           className={`group inline-flex items-center gap-3 rounded-full border pl-4 pr-1.5 py-1.5 text-[13px] font-medium
-            transition-all disabled:opacity-60 ${
+            transition-all disabled:opacity-60 focus-visible:outline-none
+            focus-visible:ring-4 focus-visible:ring-brand-500/25 ${
               checkedIn
                 ? "border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-400/30 dark:bg-brand-400/10 dark:text-brand-100"
                 : "border-hairline bg-card text-muted hover:text-body hover:shadow-card"
@@ -167,15 +170,25 @@ export function ScheduleBoard({
           ) : (
             <span>Tap to check in</span>
           )}
+          {/*
+            * The knob is anchored with an explicit `left`, not left to
+            * its static position. Without one it resolved to wherever
+            * the flex line happened to put it and the checked state
+            * pushed the knob 18px past the track — visibly outside the
+            * pill. Travel is stated as a number that follows from the
+            * geometry: 44px track − 20px knob − 2×2px inset = 20px.
+            */}
           <span
-            className={`relative w-10 h-6 rounded-full transition-colors ${
+            aria-hidden
+            className={`relative w-11 h-6 shrink-0 rounded-full transition-colors duration-200 ${
               checkedIn ? "bg-brand-600" : "bg-[var(--border-strong)]"
             }`}
           >
             <span
-              className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                checkedIn ? "translate-x-[1.125rem]" : "translate-x-0.5"
-              }`}
+              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm
+                transition-transform duration-200 ease-out ${
+                  checkedIn ? "translate-x-5" : "translate-x-0"
+                }`}
             />
           </span>
         </button>

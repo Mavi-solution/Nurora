@@ -132,12 +132,24 @@ export async function GET() {
     let unreachable = 0;
     let denied = 0;
 
-    for (const table of tables) {
-      // NOT head:true — a HEAD request has no body, so supabase-js
-      // returns no error even on a 404 and a missing table reports as
-      // healthy. Ask for a row so the failure actually surfaces.
-      const { error } = await supabase.from(table).select("id").limit(1);
+    // In parallel, not one after another: four sequential round trips
+    // made this endpoint look several times slower than the database
+    // actually is — misleading in the one place meant to report health.
+    //
+    // NOT head:true — a HEAD request has no body, so supabase-js returns
+    // no error even on a 404 and a missing table reports as healthy.
+    // Ask for a row so the failure actually surfaces.
+    const startedAll = Date.now();
+    const probes = await Promise.all(
+      tables.map(async (table) => {
+        const t0 = Date.now();
+        const { error } = await supabase.from(table).select("id").limit(1);
+        return { table, error, ms: Date.now() - t0 };
+      }),
+    );
+    const roundTripMs = Date.now() - startedAll;
 
+    for (const { table, error } of probes) {
       if (!error) {
         schema[table] = "ok";
         continue;
@@ -194,7 +206,32 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ ok: true, schema, ...checks });
+    const slowest = Math.max(...probes.map((p) => p.ms));
+
+    return NextResponse.json({
+      ok: true,
+      schema,
+      /*
+       * How long a trivial query actually takes from this deployment.
+       * The dominant cost in a serverless app is usually the distance
+       * between the functions and the database — if this is high, the
+       * fix is to run them in the same region, not to tune queries.
+       */
+      latency: {
+        slowestQueryMs: slowest,
+        allFourInParallelMs: roundTripMs,
+        verdict:
+          slowest < 60
+            ? "good — functions and database are close"
+            : slowest < 150
+              ? "acceptable"
+              : "SLOW — the functions are probably in a different region " +
+                "from the database. Set `regions` in vercel.json to the " +
+                "Supabase project's region (Supabase: Settings -> General).",
+        vercelRegion: process.env.VERCEL_REGION ?? "local",
+      },
+      ...checks,
+    });
   } catch (err) {
     return NextResponse.json(
       {

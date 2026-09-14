@@ -123,6 +123,30 @@ create the practice owner's account, then add counsellors from
 
 ---
 
+## If the deployed app feels slow
+
+Check `https://<your-app>.vercel.app/api/health` — it reports how long a
+trivial query actually takes from the deployment:
+
+```json
+"latency": { "slowestQueryMs": 12, "verdict": "good", "vercelRegion": "iad1" }
+```
+
+Under about 60ms the functions and database are close together. Much
+above that and they are almost certainly in different regions, which no
+amount of query tuning will fix: every single query pays the round trip.
+
+Find the Supabase region under **Settings -> General**, then pin Vercel's
+functions to match it in `vercel.json`:
+
+```json
+{ "regions": ["bom1"] }
+```
+
+`bom1` is Mumbai — the right choice for a project in `ap-south-1`. Vercel
+defaults to `iad1` (Washington DC), so an Indian clinic on a Mumbai
+database pays roughly 250ms on every query until this is set.
+
 ## Known limitations at deploy time
 
 - **File uploads are not wired.** Attachment kinds (recording, voice
