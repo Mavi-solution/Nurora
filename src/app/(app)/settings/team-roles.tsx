@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Alert, Avatar, Card, CardHeader } from "@/components/ui";
 import { setUserAdmin, setUserRole } from "@/lib/actions/profile";
 import type { Profile, UserRole } from "@/lib/types";
@@ -19,21 +19,53 @@ export function TeamRoles({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  /*
+   * Optimistic overrides for the two controls that are otherwise bound
+   * straight to server props. They did not visibly move until the write
+   * and the refresh had both landed — fast enough locally to look fine,
+   * but on a slow connection the control ticks and then snaps back,
+   * which reads as the click having been rejected.
+   *
+   * Keyed by user id and cleared whenever fresh props arrive.
+   */
+  const [roleOverride, setRoleOverride] = useState<Record<string, UserRole>>({});
+  const [adminOverride, setAdminOverride] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setRoleOverride({});
+    setAdminOverride({});
+  }, [people]);
+
   function change(userId: string, role: UserRole) {
     setError(null);
+    setRoleOverride((prev) => ({ ...prev, [userId]: role }));
+
     startTransition(async () => {
       const result = await setUserRole(userId, role);
-      if (!result.ok) setError(result.error);
-      else router.refresh();
+      if (!result.ok) {
+        setError(result.error);
+        setRoleOverride((prev) => {
+          const next = { ...prev };
+          delete next[userId];
+          return next;
+        });
+        return;
+      }
+      router.refresh();
     });
   }
 
   function toggleAdmin(userId: string, next: boolean) {
     setError(null);
+    setAdminOverride((prev) => ({ ...prev, [userId]: next }));
+
     startTransition(async () => {
       const result = await setUserAdmin(userId, next);
-      if (!result.ok) setError(result.error);
-      else router.refresh();
+      if (!result.ok) {
+        setError(result.error);
+        setAdminOverride((prev) => ({ ...prev, [userId]: !next }));
+        return;
+      }
+      router.refresh();
     });
   }
 
@@ -71,7 +103,7 @@ export function TeamRoles({
             >
               <input
                 type="checkbox"
-                checked={person.is_admin || person.role === "admin"}
+                checked={adminOverride[person.id] ?? (person.is_admin || person.role === "admin")}
                 disabled={pending || person.id === currentUserId}
                 onChange={(e) => toggleAdmin(person.id, e.target.checked)}
                 className="size-3.5 rounded accent-[var(--color-brand-600)] disabled:cursor-not-allowed"
@@ -80,7 +112,7 @@ export function TeamRoles({
             </label>
 
             <select
-              value={person.role}
+              value={roleOverride[person.id] ?? person.role}
               disabled={pending || person.id === currentUserId}
               onChange={(e) => change(person.id, e.target.value as UserRole)}
               aria-label={`Role for ${person.full_name}`}

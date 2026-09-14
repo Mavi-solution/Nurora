@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 
@@ -32,8 +33,14 @@ export function describeDbError(
   return message;
 }
 
-/** The signed-in profile, or null. Server-action side of `getSession`. */
-export async function currentProfile(): Promise<Profile | null> {
+/**
+ * The signed-in profile, or null. Server-action side of `getSession`.
+ *
+ * Deduped per request too: an action that checks permissions and then
+ * calls a helper which checks them again would otherwise authenticate
+ * twice. Request-scoped only — never shared between callers.
+ */
+export const currentProfile = cache(async function currentProfile(): Promise<Profile | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -47,7 +54,7 @@ export async function currentProfile(): Promise<Profile | null> {
     .maybeSingle();
 
   return (data as Profile) ?? null;
-}
+});
 
 export async function requireStaffProfile(): Promise<Profile> {
   const profile = await currentProfile();

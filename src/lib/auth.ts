@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "./supabase/server";
 import type { Profile, UserRole } from "./types";
@@ -7,8 +8,19 @@ export type Session = {
   profile: Profile;
 };
 
-/** Current profile, or null when signed out. */
-export async function getSession(): Promise<Session | null> {
+/**
+ * Current profile, or null when signed out.
+ *
+ * Deduplicated per request with React's cache(). The layout calls this
+ * to render the nav, and then every page calls it again through
+ * requireStaff() — each call was an auth.getUser() round trip to the
+ * Auth server plus a profiles select, so every page paid for two.
+ * They share one render pass, so one lookup now serves both.
+ *
+ * Not a cross-request cache: the identity here is the caller's own, and
+ * caching it beyond the request would hand one user another's session.
+ */
+export const getSession = cache(async function getSession(): Promise<Session | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -25,7 +37,7 @@ export async function getSession(): Promise<Session | null> {
   if (!profile) return null;
 
   return { userId: user.id, profile: profile as Profile };
-}
+});
 
 /** Session or bounce to sign-in / onboarding. */
 export async function requireSession(): Promise<Session> {
