@@ -118,7 +118,7 @@ try {
   step("Schedule board");
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1200);
-  check("check-in control", await page.getByRole("button", { name: /Tap to check in|Checked in/ }).isVisible());
+  check("check-in control", await page.getByRole("switch").isVisible());
   const laneNames = await page.locator("p.font-semibold").allTextContents();
   check("Anisha's lane", laneNames.includes("Anisha"), laneNames.join(","));
   check("Ravi Kumar booked", await page.getByRole("link", { name: "Ravi Kumar" }).first().isVisible());
@@ -131,9 +131,11 @@ try {
   await page.screenshot({ path: `${SHOTS}/03-schedule.png`, fullPage: true });
 
   step("Check in");
-  await page.getByRole("button", { name: /Tap to check in/ }).click();
-  await page.getByRole("button", { name: /Checked in/ }).waitFor({ timeout: 10000 });
-  check("checked in", await page.getByRole("button", { name: /Checked in/ }).isVisible());
+  await page.getByRole("switch").click();
+  // aria-checked is the switch's real state, so this asserts it flipped
+  // rather than merely that the control is on screen.
+  await page.getByRole("switch", { checked: true }).waitFor({ timeout: 10000 });
+  check("checked in", true);
 
   step("Start a session");
   // Match the row that holds BOTH the client link and its Start button —

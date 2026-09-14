@@ -92,8 +92,8 @@ try {
 
   step("Check in, then today's session starts");
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /Tap to check in/ }).click();
-  await page.getByRole("button", { name: /Checked in/ }).waitFor({ timeout: 10000 });
+  await page.getByRole("switch").click();
+  await page.getByRole("switch", { checked: true }).waitFor({ timeout: 10000 });
   check("checked in",
     await until(() => sql(`select count(*) from staff_shifts where staff_id='${me}' and checked_out_at is null`) === "1"));
 
@@ -123,8 +123,9 @@ try {
   sql(`update time_entries set ended_at = now() where appointment_id='${apptId}' and ended_at is null`);
   sql(`update appointments set status='scheduled' where id='${apptId}'`);
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /Checked in/ }).click();
-  await page.waitForTimeout(2000);
+  await page.getByRole("switch").click();
+  await page.getByRole("switch", { checked: false }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(500);
   check("checked out",
     await until(() => sql(`select count(*) from staff_shifts where staff_id='${me}' and checked_out_at is null`) === "0"));
   await page.goto(`${APP}/appointments/${apptId}`, { waitUntil: "networkidle" });
