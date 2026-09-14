@@ -23,6 +23,20 @@ async function signIn(page, email) {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL(/\/(schedule|dashboard|my)/, { timeout: 20000 });
 }
+/**
+ * The check-in toggle flips optimistically, so the label changing no
+ * longer proves the row exists. Anything asserting persistence has to
+ * wait for the write rather than for the UI.
+ */
+async function until(predicate, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return false;
+}
+
 const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 1440, height: 1100 } })).newPage();
 const errors = [];
@@ -80,7 +94,8 @@ try {
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /Tap to check in/ }).click();
   await page.getByRole("button", { name: /Checked in/ }).waitFor({ timeout: 10000 });
-  check("checked in", sql(`select count(*) from staff_shifts where staff_id='${me}' and checked_out_at is null`) === "1");
+  check("checked in",
+    await until(() => sql(`select count(*) from staff_shifts where staff_id='${me}' and checked_out_at is null`) === "1"));
 
   await page.goto(`${APP}/appointments/${apptId}`, { waitUntil: "networkidle" });
   check("Start is now enabled",
@@ -110,7 +125,8 @@ try {
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /Checked in/ }).click();
   await page.waitForTimeout(2000);
-  check("checked out", sql(`select count(*) from staff_shifts where staff_id='${me}' and checked_out_at is null`) === "0");
+  check("checked out",
+    await until(() => sql(`select count(*) from staff_shifts where staff_id='${me}' and checked_out_at is null`) === "0"));
   await page.goto(`${APP}/appointments/${apptId}`, { waitUntil: "networkidle" });
   check("Start disabled again", await page.getByRole("button", { name: "Start session" }).isDisabled());
 

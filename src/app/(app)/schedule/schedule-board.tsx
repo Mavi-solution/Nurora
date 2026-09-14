@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { AgeSelect } from "@/components/age-select";
 import { Dialog } from "@/components/dialog";
 import { SessionTimer } from "@/components/session-timer";
@@ -66,6 +66,23 @@ export function ScheduleBoard({
   const [pending, startTransition] = useTransition();
   const [navigating, startNav] = useTransition();
 
+  /*
+   * The check-in toggle gets its own state and its own transition.
+   *
+   * Driven straight from the server prop it did not move until the
+   * action AND the follow-up refresh had both landed — about 850ms of a
+   * switch that appeared stuck, even though the write itself takes
+   * ~200ms. It also shared `pending` with starting and ending sessions,
+   * so it went disabled whenever anything else was in flight.
+   *
+   * The flip is optimistic and reverts if the write is refused. The
+   * refresh still runs behind it, because checking in is what unlocks
+   * the Start buttons and those come from server state.
+   */
+  const [checkedIn, setCheckedIn] = useState<string | null>(checkedInAt);
+  const [checkingIn, startCheckIn] = useTransition();
+  useEffect(() => setCheckedIn(checkedInAt), [checkedInAt]);
+
   const tz = profile.timezone;
 
   // Tag labels are resolved from the catalogue, so a retired tag simply
@@ -95,10 +112,21 @@ export function ScheduleBoard({
 
   function onCheckIn() {
     setError(null);
-    startTransition(async () => {
+
+    const wasCheckedIn = Boolean(checkedIn);
+    // Flip now; the timestamp is only used to drive the elapsed timer,
+    // so starting it from this moment is honest either way.
+    setCheckedIn(wasCheckedIn ? null : new Date().toISOString());
+
+    startCheckIn(async () => {
       const result = await toggleCheckIn();
-      if (!result.ok) setError(result.error);
-      else router.refresh();
+      if (!result.ok) {
+        setError(result.error);
+        setCheckedIn(wasCheckedIn ? checkedInAt : null);
+        return;
+      }
+      // Checking in unlocks the Start buttons, which are server-rendered.
+      router.refresh();
     });
   }
 
@@ -121,32 +149,32 @@ export function ScheduleBoard({
         <button
           type="button"
           onClick={onCheckIn}
-          disabled={pending}
-          aria-pressed={Boolean(checkedInAt)}
+          disabled={checkingIn}
+          aria-pressed={Boolean(checkedIn)}
           className={`group inline-flex items-center gap-3 rounded-full border pl-4 pr-1.5 py-1.5 text-[13px] font-medium
             transition-all disabled:opacity-60 ${
-              checkedInAt
+              checkedIn
                 ? "border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-400/30 dark:bg-brand-400/10 dark:text-brand-100"
                 : "border-hairline bg-card text-muted hover:text-body hover:shadow-card"
             }`}
         >
           <PinIcon />
-          {checkedInAt ? (
+          {checkedIn ? (
             <span className="flex items-center gap-2">
               Checked in
-              <SessionTimer startedAt={checkedInAt} className="text-[12px] opacity-80" />
+              <SessionTimer startedAt={checkedIn} className="text-[12px] opacity-80" />
             </span>
           ) : (
             <span>Tap to check in</span>
           )}
           <span
             className={`relative w-10 h-6 rounded-full transition-colors ${
-              checkedInAt ? "bg-brand-600" : "bg-[var(--border-strong)]"
+              checkedIn ? "bg-brand-600" : "bg-[var(--border-strong)]"
             }`}
           >
             <span
               className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                checkedInAt ? "translate-x-[1.125rem]" : "translate-x-0.5"
+                checkedIn ? "translate-x-[1.125rem]" : "translate-x-0.5"
               }`}
             />
           </span>
@@ -809,7 +837,6 @@ function StartSessionDialog({
   onError: (message: string) => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const [navigating, startNav] = useTransition();
 
   function confirm() {
     if (!appointment) return;
