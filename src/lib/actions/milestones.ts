@@ -5,9 +5,12 @@ import { z } from "zod";
 import { parseNubill } from "@/lib/business/milestones";
 import {
   confirmationDate,
+  confirmationTemplateVariables,
   confirmationWhatsApp,
   greetingName,
 } from "@/lib/notify/message-templates";
+import { sendWhatsApp, whatsappConfigured } from "@/lib/notify/sms";
+import { createAdminClientOrNull } from "@/lib/supabase/admin";
 import { toE164 } from "@/lib/notify/phone";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -143,8 +146,108 @@ export async function prepareClientMessage(appointmentId: string) {
       href: `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(text)}`,
       text,
       to: phone,
+      // Whether the app can send this itself rather than handing the
+      // desk a link to tap.
+      canSendAutomatically: whatsappConfigured(),
     },
   };
+}
+
+/**
+ * Milestone 1, sent by the app rather than by hand.
+ *
+ * Uses the approved confirmation template when one is registered, which
+ * production needs: Meta rejects free-form business-initiated messages
+ * outside a 24-hour customer-service window, and a confirmation is
+ * always business-initiated. Without a template SID this falls back to
+ * free-form, which the Twilio sandbox accepts and production may not —
+ * so a rejection is surfaced rather than swallowed, and the manual link
+ * stays available as the way through.
+ */
+export async function sendClientMessageNow(appointmentId: string) {
+  const ctx = await ownsOrAdmin(appointmentId);
+  if (!ctx.ok) return fail(ctx.error);
+
+  const prepared = await prepareClientMessage(appointmentId);
+  if (!prepared.ok) return prepared;
+
+  if (!whatsappConfigured()) {
+    return fail(
+      "WhatsApp is not configured on this deployment — set TWILIO_ACCOUNT_SID, " +
+        "TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_FROM. Use the link to send it by hand meanwhile.",
+    );
+  }
+
+  const { data: appt } = await ctx.supabase
+    .from("appointments")
+    .select(
+      `starts_at,
+       client:clients!appointments_client_id_fkey (id, full_name),
+       counsellor:profiles!appointments_counsellor_id_fkey (timezone)`,
+    )
+    .eq("id", appointmentId)
+    .maybeSingle();
+
+  const client = asOne(appt?.client) as { id: string; full_name: string } | null;
+  const tz = (asOne(appt?.counsellor) as { timezone: string } | null)?.timezone ?? "Asia/Kolkata";
+
+  const templateSid = process.env.TWILIO_WHATSAPP_TEMPLATE_BOOKED?.trim() || null;
+
+  const result = await sendWhatsApp(
+    prepared.data.to,
+    prepared.data.text,
+    templateSid && client && appt
+      ? {
+          contentSid: templateSid,
+          variables: confirmationTemplateVariables({
+            name: greetingName(client.full_name),
+            date: confirmationDate(appt.starts_at as string, tz),
+          }),
+        }
+      : null,
+  );
+
+  // Recorded either way, so a failed send is visible in the ledger
+  // rather than looking like it never happened.
+  const admin = createAdminClientOrNull();
+  if (admin && client) {
+    await admin.from("notification_deliveries").upsert(
+      {
+        appointment_id: appointmentId,
+        kind: "milestone_message",
+        channel: "whatsapp",
+        status: result.ok ? "sent" : result.skipped ? "skipped" : "failed",
+        destination: prepared.data.to,
+        error: result.error ?? null,
+        recipient_key: `client:${client.id}`,
+        recipient_client_id: client.id,
+        recipient_label: client.full_name,
+        sent_at: new Date().toISOString(),
+      },
+      { onConflict: "appointment_id,recipient_key,kind,channel" },
+    );
+  }
+
+  if (!result.ok) {
+    return fail(
+      `WhatsApp refused it: ${result.error ?? "unknown error"}. ` +
+        "Send it by hand with the link instead.",
+    );
+  }
+
+  await ctx.supabase
+    .from("appointments")
+    .update({ message_sent_at: new Date().toISOString() })
+    .eq("id", appointmentId);
+
+  revalidatePath("/schedule");
+  revalidatePath(`/appointments/${appointmentId}`);
+  return { ok: true as const };
+}
+
+function asOne<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
 /** Milestone 4. Logs the pasted billing text and ticks the step. */

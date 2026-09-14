@@ -9,7 +9,8 @@ import {
 } from "@/components/ui";
 import {
   completeFollowUp, createCommitment, createFollowUp, deleteCommitment,
-  deleteFollowUp, prepareFollowUpMessage, reopenFollowUp, toggleCommitment,
+  deleteFollowUp, prepareFollowUpMessage, reopenFollowUp, sendFollowUpNow,
+  toggleCommitment,
 } from "@/lib/actions/ops";
 import type { ClientSummary, Commitment, FollowUp } from "@/lib/types";
 
@@ -49,7 +50,12 @@ export function FollowUpBoard({
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
 
-  const [sending, setSending] = useState<{ id: string; href: string; text: string } | null>(null);
+  const [sending, setSending] = useState<{
+    id: string;
+    href: string;
+    text: string;
+    canSendAutomatically: boolean;
+  } | null>(null);
 
   // Optimistic tick. Controlled purely by server state the box snaps
   // back until the refresh lands, which reads as the click doing
@@ -85,7 +91,12 @@ export function FollowUpBoard({
     startTransition(async () => {
       const r = await prepareFollowUpMessage(id);
       if (!r.ok) setError(r.error);
-      else setSending({ id, href: r.data.href, text: r.data.text });
+      else setSending({
+        id,
+        href: r.data.href,
+        text: r.data.text,
+        canSendAutomatically: r.data.canSendAutomatically,
+      });
     });
   }
 
@@ -274,20 +285,31 @@ export function FollowUpBoard({
             <Button variant="secondary" className="flex-1" onClick={() => setSending(null)}>
               Cancel
             </Button>
-            <Button
-              className="flex-1"
-              disabled={pending}
-              onClick={() => sending && run(() => completeFollowUp(sending.id, "whatsapp"), "Sent and completed.")}
-            >
-              Mark as sent
-            </Button>
+            {sending?.canSendAutomatically ? (
+              <Button
+                className="flex-1"
+                disabled={pending}
+                onClick={() => sending && run(() => sendFollowUpNow(sending.id), "Sent and completed.")}
+              >
+                {pending ? "Sending…" : "Send it now"}
+              </Button>
+            ) : (
+              <Button
+                className="flex-1"
+                disabled={pending}
+                onClick={() => sending && run(() => completeFollowUp(sending.id, "whatsapp"), "Marked as sent.")}
+              >
+                Mark as sent
+              </Button>
+            )}
           </>
         }
       >
         <div className="space-y-3">
           <p className="text-[13px] text-muted leading-relaxed">
-            Open WhatsApp with this prefilled, send it, then mark it done.
-            Completing without sending is recorded differently.
+            {sending?.canSendAutomatically
+              ? "Send it from Nurora, or open WhatsApp and send it yourself. A free-text message only reaches a client who wrote in the last 24 hours — if it is refused, use the link."
+              : "Open WhatsApp with this prefilled, send it, then mark it done. Completing without sending is recorded differently."}
           </p>
           <pre className="text-[12px] whitespace-pre-wrap break-words bg-card-muted border border-hairline rounded-xl p-3">
             {sending?.text}
@@ -297,7 +319,11 @@ export function FollowUpBoard({
               href={sending.href}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center h-10 px-5 rounded-full bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors"
+              className={`inline-flex items-center h-10 px-5 rounded-full text-sm font-medium transition-colors ${
+                sending.canSendAutomatically
+                  ? "border border-[var(--border-strong)] bg-card hover:bg-card-muted"
+                  : "bg-brand-600 text-white hover:bg-brand-700"
+              }`}
             >
               Open in WhatsApp
             </a>

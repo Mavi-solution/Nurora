@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { toE164 } from "@/lib/notify/phone";
+import { sendWhatsApp, whatsappConfigured } from "@/lib/notify/sms";
 import { createClient } from "@/lib/supabase/server";
 import {
   describeDbError,
@@ -140,8 +141,45 @@ export async function prepareFollowUpMessage(id: string) {
     data: {
       href: `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(text)}`,
       text,
+      to: phone,
+      canSendAutomatically: whatsappConfigured(),
     },
   };
+}
+
+/**
+ * Send a follow-up from the app and close it in one step.
+ *
+ * Unlike the booking confirmation, a follow-up is free text, so there
+ * is no approved template it can travel under. Meta only accepts
+ * free-form business messages inside a 24-hour window after the client
+ * last wrote, so this will be refused for a client who has not been in
+ * touch recently — the refusal is reported and the manual link stays
+ * there, which is the way through for an older conversation.
+ */
+export async function sendFollowUpNow(id: string) {
+  await requireStaffProfile();
+
+  const prepared = await prepareFollowUpMessage(id);
+  if (!prepared.ok) return prepared;
+
+  if (!whatsappConfigured()) {
+    return fail(
+      "WhatsApp is not configured on this deployment. Use the link to send it by hand.",
+    );
+  }
+
+  const result = await sendWhatsApp(prepared.data.to, prepared.data.text);
+
+  if (!result.ok) {
+    return fail(
+      `WhatsApp refused it: ${result.error ?? "unknown error"}. ` +
+        "A free-text message only reaches a client who wrote in the last " +
+        "24 hours — send it by hand with the link instead.",
+    );
+  }
+
+  return completeFollowUp(id, "whatsapp");
 }
 
 export async function completeFollowUp(id: string, via: "whatsapp" | "manual") {

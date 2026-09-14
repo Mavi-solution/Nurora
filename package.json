@@ -24,7 +24,8 @@
     "test:admin": "supabase db reset && node scripts/check-admin-screens.mjs",
     "test:counsellor": "supabase db reset && node scripts/check-counsellor-edit.mjs",
     "test:ops": "supabase db reset && node scripts/check-ops.mjs",
-    "test:start": "supabase db reset && node scripts/check-start-rules.mjs"
+    "test:start": "supabase db reset && node scripts/check-start-rules.mjs",
+    "test:whatsapp": "supabase db reset && node scripts/check-auto-whatsapp.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

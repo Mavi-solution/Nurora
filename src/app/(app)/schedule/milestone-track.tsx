@@ -8,6 +8,7 @@ import {
   logNubill,
   prepareClientMessage,
   savePersona,
+  sendClientMessageNow,
   setMilestone,
 } from "@/lib/actions/milestones";
 import {
@@ -38,7 +39,11 @@ export function MilestoneTrack({
   const [nubillText, setNubillText] = useState("");
   const [concern, setConcern] = useState("");
   const [language, setLanguage] = useState("");
-  const [waLink, setWaLink] = useState<{ href: string; text: string } | null>(null);
+  const [waLink, setWaLink] = useState<{
+    href: string;
+    text: string;
+    canSendAutomatically: boolean;
+  } | null>(null);
 
   const progress = milestoneProgress(appointment);
 
@@ -75,7 +80,11 @@ export function MilestoneTrack({
         const result = await prepareClientMessage(appointmentId);
         if (!result.ok) setError(result.error);
         else {
-          setWaLink({ href: result.data.href, text: result.data.text });
+          setWaLink({
+            href: result.data.href,
+            text: result.data.text,
+            canSendAutomatically: result.data.canSendAutomatically,
+          });
           setOpen("message");
         }
       });
@@ -154,34 +163,60 @@ export function MilestoneTrack({
             <Button variant="secondary" className="flex-1" onClick={() => { setOpen(null); setWaLink(null); }}>
               Cancel
             </Button>
-            <Button
-              className="flex-1"
-              disabled={pending}
-              onClick={() => run(() => setMilestone(appointmentId, "message", true))}
-            >
-              Mark as sent
-            </Button>
+            {waLink?.canSendAutomatically ? (
+              <Button
+                className="flex-1"
+                disabled={pending}
+                onClick={() => run(() => sendClientMessageNow(appointmentId))}
+              >
+                {pending ? "Sending…" : "Send it now"}
+              </Button>
+            ) : (
+              <Button
+                className="flex-1"
+                disabled={pending}
+                onClick={() => run(() => setMilestone(appointmentId, "message", true))}
+              >
+                Mark as sent
+              </Button>
+            )}
           </>
         }
       >
         <div className="space-y-3">
           <p className="text-[13px] text-muted leading-relaxed">
-            Open WhatsApp with this message prefilled, send it, then mark the
-            step done. The automatic confirmation already went out at booking —
-            this is your personal follow-up.
+            {waLink?.canSendAutomatically
+              ? "Send this straight from Nurora, or open WhatsApp and send it yourself."
+              : "WhatsApp is not connected, so open it with this message prefilled, send it, then mark the step done."}
           </p>
           <pre className="text-[12px] whitespace-pre-wrap break-words bg-card-muted border border-hairline rounded-xl p-3 max-h-48 overflow-y-auto">
             {waLink?.text}
           </pre>
           {waLink && (
-            <a
-              href={waLink.href}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 h-10 px-5 rounded-full bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors"
-            >
-              Open in WhatsApp
-            </a>
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href={waLink.href}
+                target="_blank"
+                rel="noreferrer"
+                className={`inline-flex items-center gap-2 h-10 px-5 rounded-full text-sm font-medium transition-colors ${
+                  waLink.canSendAutomatically
+                    ? "border border-[var(--border-strong)] bg-card hover:bg-card-muted"
+                    : "bg-brand-600 text-white hover:bg-brand-700"
+                }`}
+              >
+                Open in WhatsApp
+              </a>
+              {waLink.canSendAutomatically && (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => run(() => setMilestone(appointmentId, "message", true))}
+                  className="text-[12px] text-muted hover:text-body"
+                >
+                  Mark done without sending
+                </button>
+              )}
+            </div>
           )}
         </div>
       </Dialog>
