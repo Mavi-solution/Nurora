@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
 import { saveBooking } from "@/lib/actions/interests";
+import { uploadAttachment } from "@/lib/attachments";
 import { formatMoney } from "@/lib/format";
 import type {
   AppointmentTag,
@@ -90,6 +91,8 @@ export function BookingDialog({
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [attachment, setAttachment] = useState<AttachmentKind>("none");
   const [attachmentNote, setAttachmentNote] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [advancePaid, setAdvancePaid] = useState(false);
   const [status, setStatus] = useState<(typeof STATUSES)[number]["value"]>("scheduled");
 
@@ -129,6 +132,7 @@ export function BookingDialog({
     setTagIds([]);
     setAttachment("none");
     setAttachmentNote("");
+    setAttachmentFile(null);
     setAdvancePaid(false);
     setStatus("scheduled");
     setError(null);
@@ -189,6 +193,21 @@ export function BookingDialog({
     if (!isInterest && !startsAt) return setError("Pick a time slot.");
 
     startTransition(async () => {
+      let attachmentPath: string | null = null;
+
+      // Upload first. A booking that claims an attachment it does not
+      // have is worse than one that reports the upload failed.
+      if (attachmentFile && attachment !== "none" && attachment !== "note") {
+        setUploading(true);
+        const up = await uploadAttachment(attachmentFile);
+        setUploading(false);
+        if (!up.ok) {
+          setError(up.error);
+          return;
+        }
+        attachmentPath = up.path;
+      }
+
       const result = await saveBooking({
         bookingStatus,
         clientType,
@@ -205,6 +224,7 @@ export function BookingDialog({
         tagIds,
         attachment,
         attachmentNote: attachmentNote || null,
+        attachmentPath,
         status: isInterest ? undefined : status,
         advancePaid: isInterest ? undefined : advancePaid,
       });
@@ -229,7 +249,9 @@ export function BookingDialog({
             Cancel
           </Button>
           <Button className="flex-1" onClick={submit} disabled={pending}>
-            {pending
+            {uploading
+              ? "Uploading…"
+              : pending
               ? "Saving…"
               : isInterest
                 ? "Save as Interest"
@@ -549,12 +571,24 @@ export function BookingDialog({
           )}
 
           {(attachment === "recording" || attachment === "voice_note") && (
-            <p className="mt-2 text-[12px] text-blush-700 dark:text-blush-300 bg-blush-50 dark:bg-blush-500/10 border border-blush-200 dark:border-blush-500/25 rounded-xl px-3 py-2">
-              The {attachment === "recording" ? "recording" : "voice note"} is
-              recorded against this booking and expires in 30 days, but file
-              upload is not wired up yet — attach the file separately for now.
-            </p>
+            <div className="mt-2 space-y-2">
+              <input
+                type="file"
+                accept="audio/*,video/mp4,video/webm,image/*,application/pdf,text/plain"
+                onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-[13px] file:mr-3 file:h-9 file:px-4 file:rounded-full file:border-0 file:bg-brand-600 file:text-white file:text-[13px] file:font-medium hover:file:bg-brand-700 file:cursor-pointer"
+              />
+              {attachmentFile && (
+                <p className="text-[12px] text-muted">
+                  {attachmentFile.name} · {(attachmentFile.size / 1024 / 1024).toFixed(1)}MB
+                </p>
+              )}
+              <p className="text-[12px] text-faint">
+                Up to 25MB. Stored privately and deleted after 30 days.
+              </p>
+            </div>
           )}
+
         </fieldset>
 
         {/* ------------------------------------------- booking-only bits */}

@@ -19,11 +19,30 @@ export function Dialog({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  /*
+   * onClose lives in a ref so it is NOT an effect dependency.
+   *
+   * Every caller passes an inline arrow, so its identity changes on
+   * each render. With it in the dependency array the effect tore down
+   * and set up again on every keystroke — and because it moves focus
+   * into the panel, it pulled focus out of whatever was being typed
+   * into. One character would land and the rest went nowhere, which is
+   * what "can't type the data continuously" was across every dialog in
+   * the app.
+   *
+   * The handler reads the ref, so it always calls the current onClose
+   * without the effect needing to know when it changed.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKey);
 
@@ -31,14 +50,25 @@ export function Dialog({
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Move focus into the panel for keyboard and screen-reader users.
-    panelRef.current?.focus();
-
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previous;
     };
-  }, [open, onClose]);
+  }, [open]);
+
+  /*
+   * Focus moves into the panel ONCE, when the dialog opens — keyboard
+   * and screen-reader users need it, but doing it on every render is
+   * what broke typing. A field marked autoFocus wins, since that is a
+   * deliberate choice by the dialog's author.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (panel.querySelector("[autofocus]")) return;
+    panel.focus();
+  }, [open]);
 
   if (!open) return null;
 

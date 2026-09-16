@@ -74,6 +74,37 @@ try {
   check("preferred language is a <select>", (await pl.evaluate((el) => el.tagName)) === "SELECT");
   check("offers languages", (await pl.locator("option").count()) > 5);
 
+  step("Typing works continuously in every dialog");
+  const WORD = "Priyadharshini Venkatesan";
+  async function typesFully(label, open, field) {
+    await open();
+    const loc = field();
+    await loc.click();
+    await loc.pressSequentially(WORD, { delay: 12 });
+    check(label, (await loc.inputValue()) === WORD, await loc.inputValue());
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+  }
+  await typesFully("follow-up field keeps focus",
+    async () => { await page.goto(`${APP}/follow-ups`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: "New follow-up" }).click();
+      await page.getByRole("dialog").waitFor({ timeout: 8000 }); },
+    () => page.getByRole("dialog").getByRole("textbox", { name: /^What to send/ }));
+  await typesFully("review field keeps focus",
+    async () => { await page.goto(`${APP}/reviews`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: "Log a review" }).click();
+      await page.getByRole("dialog").waitFor({ timeout: 8000 }); },
+    () => page.getByRole("dialog").getByRole("textbox", { name: /^Client name/ }));
+
+  step("Attachments can be uploaded when booking");
+  await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Quick book" }).click();
+  const bd = page.getByRole("dialog");
+  await bd.waitFor({ timeout: 10000 });
+  await bd.getByRole("button", { name: "Voice note", exact: true }).click();
+  check("a file picker is offered", await bd.locator("input[type=file]").isVisible());
+  await page.keyboard.press("Escape");
+
   step("Console / server errors");
   check("no page errors or 5xx", errors.length === 0, errors.slice(0, 3).join(" | "));
 } catch (err) {

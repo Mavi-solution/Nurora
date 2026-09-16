@@ -32,6 +32,8 @@ export const bookingFormSchema = z.object({
 
   attachment: z.enum(["none", "recording", "voice_note", "note"]).optional(),
   attachmentNote: z.string().trim().max(4000).optional().nullable(),
+  /** Storage path of an uploaded file, from the attachments bucket. */
+  attachmentPath: z.string().trim().max(400).optional().nullable(),
 
   status: z
     .enum(["scheduled", "in_progress", "completed", "cancelled", "no_show"])
