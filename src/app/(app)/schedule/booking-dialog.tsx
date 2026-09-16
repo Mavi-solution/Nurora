@@ -14,6 +14,7 @@ import type {
   Service,
   SessionMode,
 } from "@/lib/types";
+import { GENDERS } from "@/lib/options";
 import type { Slot } from "@/lib/time";
 
 const MODES: { value: SessionMode; label: string }[] = [
@@ -29,7 +30,7 @@ const ATTACHMENTS: { value: AttachmentKind; label: string }[] = [
   { value: "note", label: "Note" },
 ];
 
-const GENDERS = ["Female", "Male", "Non-binary", "Prefer not to say"];
+
 
 const STATUSES = [
   { value: "scheduled", label: "Scheduled" },
@@ -445,7 +446,7 @@ export function BookingDialog({
                       timeZone: tz,
                       hour: "2-digit",
                       minute: "2-digit",
-                      hour12: false,
+                      hour12: true,
                     }).format(new Date(slot.startsAt))}
                   </button>
                 ))}

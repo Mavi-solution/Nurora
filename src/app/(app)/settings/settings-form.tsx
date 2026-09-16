@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { CURRENCIES, withCurrent } from "@/lib/options";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import { updateSettings } from "@/lib/actions/profile";
 import { COMMON_TIMEZONES } from "@/lib/time";
@@ -87,12 +88,20 @@ export function SettingsForm({ profile }: { profile: Profile }) {
           <CardHeader title="Rates" description="Defaults applied when booking a session." />
           <div className="px-5 py-4 grid sm:grid-cols-3 gap-4">
             <Field label="Currency">
-              <input
+              <select
                 name="currency"
                 defaultValue={profile.currency}
-                maxLength={3}
-                className={`${fieldClass} uppercase`}
-              />
+                className={fieldClass}
+              >
+                {withCurrent(CURRENCIES.map((c) => c.code), profile.currency).map((code) => {
+                  const known = CURRENCIES.find((c) => c.code === code);
+                  return (
+                    <option key={code} value={code}>
+                      {known ? known.label : code}
+                    </option>
+                  );
+                })}
+              </select>
             </Field>
             <Field label="Session fee" hint="Shown on the start dialog.">
               <input

@@ -130,7 +130,8 @@ try {
   await stepBtn(5).click();
   await page.waitForTimeout(600);
   await page.getByPlaceholder(/own words/).fill("Work stress, sleeping badly.");
-  await page.getByPlaceholder("Tamil").fill("Tamil");
+  // Preferred language is a dropdown now, not free text.
+  await page.getByLabel("Preferred language").selectOption("Tamil");
   await page.getByRole("button", { name: "Save Persona" }).click();
   await page.waitForTimeout(2200);
   check("concern saved to the client",

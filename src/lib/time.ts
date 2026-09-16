@@ -11,15 +11,64 @@ export const WEEKDAYS = [
 ] as const;
 
 export const COMMON_TIMEZONES = [
+  // India and the Gulf first — where this practice and most of its
+  // diaspora clients are.
   "Asia/Kolkata",
+  "Asia/Colombo",
+  "Asia/Karachi",
+  "Asia/Dhaka",
+  "Asia/Kathmandu",
   "Asia/Dubai",
+  "Asia/Qatar",
+  "Asia/Riyadh",
+  "Asia/Kuwait",
+  "Asia/Muscat",
+  "Asia/Bahrain",
+  // South-east and east Asia
   "Asia/Singapore",
+  "Asia/Kuala_Lumpur",
+  "Asia/Bangkok",
+  "Asia/Jakarta",
+  "Asia/Manila",
+  "Asia/Hong_Kong",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Asia/Seoul",
+  // Europe
   "Europe/London",
+  "Europe/Dublin",
+  "Europe/Lisbon",
+  "Europe/Paris",
   "Europe/Berlin",
+  "Europe/Madrid",
+  "Europe/Rome",
+  "Europe/Amsterdam",
+  "Europe/Zurich",
+  "Europe/Stockholm",
+  "Europe/Moscow",
+  // Africa
+  "Africa/Cairo",
+  "Africa/Nairobi",
+  "Africa/Lagos",
+  "Africa/Johannesburg",
+  // Americas
   "America/New_York",
+  "America/Toronto",
   "America/Chicago",
+  "America/Denver",
+  "America/Phoenix",
   "America/Los_Angeles",
+  "America/Vancouver",
+  "America/Mexico_City",
+  "America/Sao_Paulo",
+  "America/Argentina/Buenos_Aires",
+  // Oceania
+  "Australia/Perth",
+  "Australia/Adelaide",
+  "Australia/Brisbane",
   "Australia/Sydney",
+  "Australia/Melbourne",
+  "Pacific/Auckland",
   "UTC",
 ];
 

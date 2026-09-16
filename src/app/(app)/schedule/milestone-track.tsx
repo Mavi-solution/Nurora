@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { LANGUAGES, withCurrent } from "@/lib/options";
 import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
@@ -300,12 +301,16 @@ export function MilestoneTrack({
             />
           </Field>
           <Field label="Preferred language">
-            <input
+            <select
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
               className={fieldClass}
-              placeholder="Tamil"
-            />
+            >
+              <option value="">No preference</option>
+              {withCurrent(LANGUAGES, language).map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
           </Field>
         </div>
       </Dialog>

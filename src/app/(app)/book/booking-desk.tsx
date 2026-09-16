@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { GENDERS, withCurrent } from "@/lib/options";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import {
   Alert,
@@ -361,12 +362,16 @@ export function BookingDesk({
                     />
                   </Field>
                   <Field label="Gender">
-                    <input
+                    <select
                       value={draft.gender}
                       onChange={(e) => setDraft({ ...draft, gender: e.target.value })}
                       className={fieldClass}
-                      placeholder="Optional"
-                    />
+                    >
+                      <option value="">Select gender</option>
+                      {withCurrent(GENDERS, draft.gender).map((g) => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                    </select>
                   </Field>
                   <Field label="Preferred language">
                     <select
