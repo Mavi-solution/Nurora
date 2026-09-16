@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { useState, useTransition } from "react";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import { archiveClient, updateClientRecord } from "@/lib/actions/clients";
@@ -77,13 +79,25 @@ export function ClientEditor({
           />
         </Field>
 
-        <Field label="Phone" hint="SMS and WhatsApp reminders go here.">
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} className={fieldClass} />
-        </Field>
+        <ValidatedField
+                      label="Phone"
+                      hint="SMS and WhatsApp reminders go here."
+                      type="tel"
+                      inputMode="tel"
+                      value={phone}
+                      onChange={setPhone}
+                      validate={validators.phone()}
+                    />
 
-        <Field label="Email" hint="Email reminders go here.">
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass} />
-        </Field>
+        <ValidatedField
+                      label="Email"
+                      hint="Email reminders go here."
+                      type="email"
+                      inputMode="email"
+                      value={email}
+                      onChange={setEmail}
+                      validate={validators.email()}
+                    />
 
         <Field label="Primary counsellor">
           <select

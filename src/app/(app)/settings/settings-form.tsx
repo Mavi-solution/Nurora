@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { PRACTICE_CURRENCY_LABEL } from "@/lib/options";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import { updateSettings } from "@/lib/actions/profile";
@@ -71,15 +73,16 @@ export function SettingsForm({ profile }: { profile: Profile }) {
             </select>
           </Field>
 
-          <Field label="Phone" hint="Used for SMS and WhatsApp reminders.">
-            <input
-              name="phone"
-              type="tel"
-              defaultValue={profile.phone ?? ""}
-              className={fieldClass}
-              placeholder="+91 98765 43210"
-            />
-          </Field>
+          <ValidatedField
+            label="Phone"
+            hint="Used for SMS and WhatsApp reminders."
+            type="tel"
+            inputMode="tel"
+            name="phone"
+            defaultValue={profile.phone ?? ""}
+            placeholder="+91 98765 43210"
+            validate={validators.phone()}
+          />
         </div>
       </Card>
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { Dialog } from "@/components/dialog";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
 import { saveBooking } from "@/lib/actions/interests";
@@ -499,15 +501,16 @@ export function BookingDialog({
           </div>
         </fieldset>
 
-        <Field label="WhatsApp number" hint="Confirmations and reminders go here.">
-          <input
-            value={whatsapp}
-            onChange={(e) => setWhatsapp(e.target.value)}
-            placeholder="e.g. 98400 11223"
-            inputMode="tel"
-            className={fieldClass}
-          />
-        </Field>
+        <ValidatedField
+                      label="WhatsApp number"
+                      hint="Confirmations and reminders go here."
+                      type="tel"
+                      inputMode="tel"
+                      placeholder="e.g. 98400 11223"
+                      value={whatsapp}
+                      onChange={setWhatsapp}
+                      validate={validators.phone({ label: "WhatsApp number" })}
+                    />
 
         {/* ---------------------------------------------------- the tags */}
         {tags.length > 0 && (

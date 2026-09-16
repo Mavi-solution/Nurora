@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
@@ -177,9 +179,14 @@ export function CounsellorEditor({
             <input value={fullName} onChange={(e) => setFullName(e.target.value)} className={fieldClass} />
           </Field>
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="Phone">
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} className={fieldClass} placeholder="+91…" />
-            </Field>
+            <ValidatedField
+              label="Phone"
+              type="tel"
+              inputMode="tel"
+              value={phone}
+              onChange={setPhone}
+              validate={validators.phone()}
+            />
             <Field label="Timezone">
               <input value={timezone} onChange={(e) => setTimezone(e.target.value)} className={fieldClass} />
             </Field>

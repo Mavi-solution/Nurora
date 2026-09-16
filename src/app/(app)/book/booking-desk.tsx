@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { GENDERS, withCurrent } from "@/lib/options";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import {
@@ -333,23 +335,24 @@ export function BookingDesk({
                       placeholder="Ravi Kumar"
                     />
                   </Field>
-                  <Field label="Phone" hint="Reminders go here.">
-                    <input
-                      value={draft.phone}
-                      onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-                      className={fieldClass}
+                  <ValidatedField
+                      label="Phone"
+                      hint="Reminders go here."
+                      type="tel"
+                      inputMode="tel"
                       placeholder="+91 98765 43210"
+                      value={draft.phone}
+                      onChange={(v) => setDraft({ ...draft, phone: v })}
+                      validate={validators.phone()}
                     />
-                  </Field>
-                  <Field label="Email">
-                    <input
+                  <ValidatedField
+                      label="Email"
                       type="email"
+                      inputMode="email"
                       value={draft.email}
-                      onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                      className={fieldClass}
-                      placeholder="ravi@example.com"
+                      onChange={(v) => setDraft({ ...draft, email: v })}
+                      validate={validators.email()}
                     />
-                  </Field>
                   <Field label="Age">
                     <input
                       type="number"

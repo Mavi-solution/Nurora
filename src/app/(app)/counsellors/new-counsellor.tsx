@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
@@ -168,23 +170,24 @@ export function NewCounsellorButton({
                 autoFocus
               />
             </Field>
-            <Field label="Email" required hint="They sign in with this.">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={fieldClass}
-                placeholder="anisha@practice.com"
-              />
-            </Field>
-            <Field label="Phone">
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className={fieldClass}
-                placeholder="+91…"
-              />
-            </Field>
+            <ValidatedField
+              label="Email"
+              required
+              type="email"
+              inputMode="email"
+              hint="They sign in with this."
+              value={email}
+              onChange={setEmail}
+              validate={validators.email({ required: true })}
+            />
+            <ValidatedField
+              label="Phone"
+              type="tel"
+              inputMode="tel"
+              value={phone}
+              onChange={setPhone}
+              validate={validators.phone()}
+            />
             <Field label="Timezone">
               <select
                 value={timezone}

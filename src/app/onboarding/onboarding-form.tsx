@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ValidatedField } from "@/components/validated-field";
+import { validators } from "@/lib/validation";
 import { Alert, Button, Card, Field, fieldClass } from "@/components/ui";
 import { completeOnboarding } from "@/lib/actions/profile";
 import { COMMON_TIMEZONES } from "@/lib/time";
@@ -100,15 +102,15 @@ export function OnboardingForm({ profile }: { profile: Profile }) {
           </select>
         </Field>
 
-        <Field label="Phone" hint="Used for SMS and WhatsApp reminders. Optional.">
-          <input
-            name="phone"
-            type="tel"
-            defaultValue={profile.phone ?? ""}
-            className={fieldClass}
-            placeholder="+91 98765 43210"
-          />
-        </Field>
+        <ValidatedField
+          label="Phone"
+          hint="Used for SMS and WhatsApp reminders. Optional."
+          type="tel"
+          inputMode="tel"
+          name="phone"
+          defaultValue={profile.phone ?? ""}
+          validate={validators.phone()}
+        />
 
         <Button type="submit" size="lg" className="w-full" disabled={pending}>
           {pending ? "Setting up…" : "Continue"}
