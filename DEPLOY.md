@@ -57,7 +57,36 @@ vercel --prod
 Vercel builds with `next build`. `vercel.json` already registers the
 daily reminder cron at 03:00 UTC.
 
-## 5. Environment variables
+## 5. Put the functions in the same region as the database
+
+`vercel.json` pins them to `bom1` (Mumbai), matching a Supabase project
+in `ap-south-1`.
+
+This is not a micro-optimisation. Serving from Washington (`iad1`) while
+the database sits in Mumbai measured **419ms per query** against ~38ms
+locally, and every page pays that on every query it makes. `/api/health`
+reports the figure and names the likely cause:
+
+```json
+"latency": { "slowestQueryMs": 419, "vercelRegion": "iad1",
+             "verdict": "SLOW — the functions are probably in a
+                         different region from the database." }
+```
+
+**If you move the Supabase project, change this too.** The region codes:
+
+| Supabase | Vercel |
+| --- | --- |
+| `ap-south-1` Mumbai | `bom1` |
+| `ap-southeast-1` Singapore | `sin1` |
+| `us-east-1` N. Virginia | `iad1` |
+| `eu-west-2` London | `lhr1` |
+| `eu-central-1` Frankfurt | `fra1` |
+
+Static assets still come from Vercel's global CDN; only the server
+functions are pinned, and they are the ones talking to the database.
+
+## 6. Environment variables
 
 Set these in **Vercel → Settings → Environment Variables** (Production,
 and Preview if you want previews working). `.env.example` documents
@@ -98,7 +127,7 @@ bookings ask for anything upfront. See `src/lib/business/billing.ts`.
 `NEXT_PUBLIC_PRACTICE_NAME`, `NOTIFY_DEFAULT_COUNTRY_CODE` (default
 `+91`), `NEXT_PUBLIC_ENABLE_GOOGLE_AUTH`.
 
-## 6. WhatsApp templates — the one thing that silently breaks
+## 7. WhatsApp templates — the one thing that silently breaks
 
 Meta blocks free-form business-initiated WhatsApp messages outside a
 24-hour customer-service window. A booking confirmation is *always*
@@ -114,7 +143,7 @@ Register the approved confirmation template with exactly the copy in
 
 then set `TWILIO_WHATSAPP_TEMPLATE_BOOKED` to its Content SID (`HX…`).
 
-## 7. First sign-in
+## 8. First sign-in
 
 The **first account to sign up becomes the admin** automatically
 (`handle_new_user()` in migration 0002). So: deploy, visit `/signup`,
