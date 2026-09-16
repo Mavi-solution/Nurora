@@ -29,13 +29,31 @@ async function signIn(page, email) {
   await page.waitForURL(/\/(schedule|dashboard|my)/, { timeout: 20000 });
 }
 
+/**
+ * A date a few days out that the clinic actually works.
+ *
+ * "+N days" alone is flaky: it lands on a Sunday one week in four, the
+ * clinic has no Sunday availability, and the test then fails for a
+ * reason unrelated to what it is checking.
+ *
+ * Everything here is UTC on purpose. Mixing getDay() (local) with
+ * toISOString() (UTC) was the first attempt, and it disagreed with
+ * itself in the evening: 8pm EDT is already the next day in UTC, so the
+ * weekday checked was not the weekday of the string returned.
+ */
+function nextWorkingDay(fromDays = 3) {
+  const d = new Date(Date.now() + fromDays * 86400000);
+  while (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 1440, height: 1100 } })).newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("response", (r) => { if (r.status() >= 500) errors.push(`${r.status()} ${r.url()}`); });
 
-const future = new Date(Date.now() + 4 * 86400000).toISOString().slice(0, 10);
+const future = nextWorkingDay(4);
 
 async function openDialog() {
   await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
