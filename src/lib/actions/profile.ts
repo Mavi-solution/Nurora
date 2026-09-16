@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { REF_TAG } from "@/lib/data/reference";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { PRACTICE_CURRENCY } from "@/lib/options";
 import { createClient } from "@/lib/supabase/server";
 import { currentProfile, describeDbError, fail } from "./shared";
 
@@ -76,7 +77,7 @@ const settingsSchema = z.object({
   bio: z.string().trim().max(2000).optional(),
   timezone: z.string().trim().min(1),
   phone: z.string().trim().max(24).optional(),
-  currency: z.string().trim().length(3),
+
   hourlyRate: z.coerce.number().min(0).max(1_000_000),
   sessionFee: z.coerce.number().min(0).max(1_000_000),
   durationMinutes: z.coerce.number().int().min(10).max(480),
@@ -95,7 +96,6 @@ export async function updateSettings(formData: FormData) {
     bio: formData.get("bio") ?? "",
     timezone: formData.get("timezone"),
     phone: formData.get("phone") ?? "",
-    currency: formData.get("currency"),
     hourlyRate: formData.get("hourlyRate") ?? 0,
     sessionFee: formData.get("sessionFee") ?? 0,
     durationMinutes: formData.get("durationMinutes") ?? 60,
@@ -117,7 +117,9 @@ export async function updateSettings(formData: FormData) {
       bio: v.bio || null,
       timezone: v.timezone,
       phone: v.phone || null,
-      currency: v.currency.toUpperCase(),
+      // Fixed, not submitted: the form shows it read-only, and a
+      // crafted request must not be able to set anything else.
+      currency: PRACTICE_CURRENCY,
       // Money is entered in major units and stored in minor units.
       hourly_rate_cents: Math.round(v.hourlyRate * 100),
       default_session_fee_cents: Math.round(v.sessionFee * 100),

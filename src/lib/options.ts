@@ -41,21 +41,18 @@ export const LANGUAGES = [
   "Spanish",
 ] as const;
 
-/** Currencies, as ISO 4217 with the symbol people recognise. */
-export const CURRENCIES = [
-  { code: "INR", label: "₹ Indian rupee" },
-  { code: "USD", label: "$ US dollar" },
-  { code: "EUR", label: "€ Euro" },
-  { code: "GBP", label: "£ Pound sterling" },
-  { code: "AED", label: "د.إ UAE dirham" },
-  { code: "SGD", label: "S$ Singapore dollar" },
-  { code: "MYR", label: "RM Malaysian ringgit" },
-  { code: "AUD", label: "A$ Australian dollar" },
-  { code: "CAD", label: "C$ Canadian dollar" },
-  { code: "LKR", label: "Rs Sri Lankan rupee" },
-  { code: "CHF", label: "CHF Swiss franc" },
-  { code: "JPY", label: "¥ Japanese yen" },
-] as const;
+/**
+ * The practice bills in Indian rupees only.
+ *
+ * Kept as a named constant rather than scattered "INR" literals so the
+ * day it stops being true there is one place to change. Every currency
+ * column in the schema already defaults to INR; this makes the app
+ * agree with the database instead of offering a choice that nothing
+ * downstream is set up to honour — a session priced in one currency and
+ * invoiced in another is a reporting problem, not a feature.
+ */
+export const PRACTICE_CURRENCY = "INR";
+export const PRACTICE_CURRENCY_LABEL = "₹ Indian rupee (INR)";
 
 /**
  * Merge a stored value into a list so an existing record never silently

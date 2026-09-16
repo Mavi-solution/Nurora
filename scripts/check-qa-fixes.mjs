@@ -57,11 +57,10 @@ try {
     check("gender is a <select>", (await deskGender.first().evaluate((el) => el.tagName)) === "SELECT");
   } else check("gender field reachable on step 1", true, "(behind the caller step — checked statically)");
 
-  step("SETTINGS — currency is a list, timezone list is long");
+  step("SETTINGS — currency is fixed to rupees, timezone list is long");
   await page.goto(`${APP}/settings`, { waitUntil: "networkidle" });
-  const cur = page.locator('select[name="currency"]');
-  check("currency is a <select>", (await cur.count()) === 1);
-  check("currency offers real options", (await cur.locator("option").count()) >= 10);
+  check("no currency picker", (await page.locator('select[name="currency"]').count()) === 0);
+  check("shows Indian rupee", await page.getByText(/Indian rupee/).isVisible());
   const tz = page.locator('select[name="timezone"]');
   check("timezone offers 40+ zones", (await tz.locator("option").count()) >= 40,
     `${await tz.locator("option").count()}`);

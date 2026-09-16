@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { CURRENCIES, withCurrent } from "@/lib/options";
+import { PRACTICE_CURRENCY_LABEL } from "@/lib/options";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import { updateSettings } from "@/lib/actions/profile";
 import { COMMON_TIMEZONES } from "@/lib/time";
@@ -87,21 +87,16 @@ export function SettingsForm({ profile }: { profile: Profile }) {
         <Card>
           <CardHeader title="Rates" description="Defaults applied when booking a session." />
           <div className="px-5 py-4 grid sm:grid-cols-3 gap-4">
-            <Field label="Currency">
-              <select
-                name="currency"
-                defaultValue={profile.currency}
-                className={fieldClass}
+            <Field label="Currency" hint="The practice bills in rupees.">
+              {/* Displayed rather than chosen: every price, invoice and
+                  report is in rupees, so a picker would only offer a
+                  choice nothing downstream honours. */}
+              <p
+                className={`${fieldClass} bg-card-muted text-muted flex items-center`}
+                aria-readonly="true"
               >
-                {withCurrent(CURRENCIES.map((c) => c.code), profile.currency).map((code) => {
-                  const known = CURRENCIES.find((c) => c.code === code);
-                  return (
-                    <option key={code} value={code}>
-                      {known ? known.label : code}
-                    </option>
-                  );
-                })}
-              </select>
+                {PRACTICE_CURRENCY_LABEL}
+              </p>
             </Field>
             <Field label="Session fee" hint="Shown on the start dialog.">
               <input
