@@ -138,8 +138,33 @@ export async function GET(request: NextRequest) {
    */
   const daysOffOn = await loadDaysOffRange(dateKey, windowEndKey);
 
+  /*
+   * Grouped once, not re-filtered per call.
+   *
+   * slotsFor runs up to (1 + 14 lookahead days) x the roster, and each
+   * call was scanning every rule, exception and booking in the whole
+   * fortnight. The desk types into this on every keystroke of the
+   * filters, so the scan cost was paid over and over for data that
+   * never changes within a request.
+   */
+  const rulesFor = new Map<string, AvailabilityRule[]>();
+  for (const r of allRules) {
+    rulesFor.set(r.counsellor_id, [...(rulesFor.get(r.counsellor_id) ?? []), r]);
+  }
+  const busyFor = new Map<string, typeof allBusy>();
+  for (const b of allBusy) {
+    busyFor.set(b.counsellor_id, [...(busyFor.get(b.counsellor_id) ?? []), b]);
+  }
+  const exceptionsFor = new Map<string, AvailabilityException[]>();
+  for (const e of allExceptions) {
+    const key = `${e.counsellor_id}:${e.on_date}`;
+    exceptionsFor.set(key, [...(exceptionsFor.get(key) ?? []), e]);
+  }
+  const todayFor = new Map(
+    counsellors.map((c) => [c.id, dateKeyInTimeZone(now, c.timezone)]),
+  );
+
   function slotsFor(counsellor: Counsellor, day: string) {
-    const todayKey = dateKeyInTimeZone(now, counsellor.timezone);
     const [y, m, d] = day.split("-").map(Number);
     const daysOff = daysOffOn(day);
 
@@ -148,14 +173,12 @@ export async function GET(request: NextRequest) {
       timezone: counsellor.timezone,
       durationMinutes: duration || counsellor.default_duration_minutes || 60,
       stepMinutes: 30,
-      rules: allRules.filter((r) => r.counsellor_id === counsellor.id),
-      exceptions: allExceptions.filter(
-        (e) => e.counsellor_id === counsellor.id && e.on_date === day,
-      ),
-      busy: allBusy.filter((b) => b.counsellor_id === counsellor.id),
+      rules: rulesFor.get(counsellor.id) ?? [],
+      exceptions: exceptionsFor.get(`${counsellor.id}:${day}`) ?? [],
+      busy: busyFor.get(counsellor.id) ?? [],
       dayOff: daysOff.clinicClosed || daysOff.off.has(counsellor.id),
       notBefore:
-        day === todayKey
+        day === todayFor.get(counsellor.id)
           ? now
           : zonedTimeToUtc(y, m, d, 0, 0, counsellor.timezone),
     });

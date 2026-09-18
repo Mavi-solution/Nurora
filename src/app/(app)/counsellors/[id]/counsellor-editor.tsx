@@ -77,6 +77,9 @@ export function CounsellorEditor({
   const [bio, setBio] = useState(counsellor.bio ?? "");
   const [timezone, setTimezone] = useState(counsellor.timezone);
   const [languages, setLanguages] = useState<string[]>(counsellor.languages ?? []);
+  const [preferredLanguage, setPreferredLanguage] = useState(
+    counsellor.preferred_language ?? counsellor.languages?.[0] ?? "",
+  );
   const [sessionFee, setSessionFee] = useState(String(counsellor.default_session_fee_cents / 100));
   const [duration, setDuration] = useState(String(counsellor.default_duration_minutes));
 
@@ -137,6 +140,7 @@ export function CounsellorEditor({
           fullName, phone, headline, bio, timezone,
           currency: PRACTICE_CURRENCY,
           languages,
+          preferredLanguage,
           sessionFee: Number(sessionFee),
           durationMinutes: Number(duration),
           specialismIds: skills,
@@ -209,11 +213,16 @@ export function CounsellorEditor({
                   <button
                     key={l}
                     type="button"
-                    onClick={() =>
-                      setLanguages((prev) =>
-                        prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l],
-                      )
-                    }
+                    onClick={() => {
+                      const next = languages.includes(l)
+                        ? languages.filter((x) => x !== l)
+                        : [...languages, l];
+                      setLanguages(next);
+                      // The preference cannot outlive the language.
+                      if (!next.includes(preferredLanguage)) {
+                        setPreferredLanguage(next[0] ?? "");
+                      }
+                    }}
                     aria-pressed={on}
                     className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
                       on
@@ -226,6 +235,26 @@ export function CounsellorEditor({
                 );
               })}
             </div>
+
+            {languages.length > 1 && (
+              <div className="mt-3 max-w-xs">
+                <Field
+                  label="Preferred language"
+                  hint="Listed first when the desk is matching a caller."
+                >
+                  <select
+                    value={preferredLanguage}
+                    onChange={(e) => setPreferredLanguage(e.target.value)}
+                    aria-label="Preferred language"
+                    className={fieldClass}
+                  >
+                    {languages.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            )}
           </div>
 
           <div className="grid sm:grid-cols-3 gap-3">

@@ -88,6 +88,9 @@ export function LeaveBoard({
 
   const viewingSelf = staffId === profile.id;
 
+  const dateKey = (day: number) =>
+    `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
   const weekOffByDate = new Map(weekOffs.map((w) => [w.on_date, w]));
   const leaveByDate = new Map(leaves.map((l) => [l.on_date, l]));
   const holidayByDate = new Map(holidays.map((h) => [h.on_date, h]));
@@ -95,13 +98,20 @@ export function LeaveBoard({
   const remaining = Math.max(0, quota - weekOffs.length);
 
   /*
-   * An admin can still tidy up a past month on someone's behalf; a
-   * counsellor cannot retroactively book themselves a day off that has
-   * already gone. That is the whole of "don't display the past days in
-   * week off in calendar" — they stay visible, because the record of
-   * what was taken matters, but they stop being clickable.
+   * Days that have gone are dimmed and not clickable — for everyone.
+   *
+   * The first attempt exempted admins, on the reasoning that a practice
+   * manager sometimes has to correct last month's record. That was
+   * wrong in practice for the obvious reason: an admin account is
+   * exactly what the practice uses day to day, so the fix was invisible
+   * to the people who reported it. The correction case is real, so it
+   * gets a deliberate opt-in instead of being on by default.
    */
-  const isPast = (key: string) => !isAdmin && key < todayKey;
+  const [includePast, setIncludePast] = useState(false);
+  const isPast = (key: string) => key < todayKey && !(isAdmin && includePast);
+  const hasPastDays = weeks.some(
+    (w) => dateKey(w.startDay) < todayKey,
+  );
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) {
     setError(null);
@@ -134,9 +144,6 @@ export function LeaveBoard({
       month: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`,
     });
   }
-
-  const dateKey = (day: number) =>
-    `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
   const selected = dayOpen;
   const selectedWeekOff = selected ? weekOffByDate.get(selected) : undefined;
@@ -194,12 +201,30 @@ export function LeaveBoard({
           </button>
         </div>
 
+        {isAdmin && hasPastDays && (
+          <label className="flex items-center gap-2.5 cursor-pointer text-[13px]">
+            <input
+              type="checkbox"
+              checked={includePast}
+              onChange={(e) => setIncludePast(e.target.checked)}
+              className="size-4 rounded accent-[var(--color-brand-600)] cursor-pointer"
+            />
+            {/* Correcting a past month is a real admin task, but it is
+                not the everyday one, so it is opt-in. */}
+            <span>Allow past days</span>
+          </label>
+        )}
+
         {isAdmin && staff.length > 0 && (
+          <div className="w-64">
           <select
             value={staffId}
             onChange={(e) => go({ staff: e.target.value })}
             aria-label="Whose calendar"
-            className={`${fieldClass} w-auto`}
+            /* fieldClass already sets w-full; a second width utility on
+               the same element is a coin toss over which one Tailwind
+               emits last. Size it from a wrapper instead. */
+            className={fieldClass}
           >
             {staff.map((s) => (
               <option key={s.id} value={s.id}>
@@ -207,6 +232,7 @@ export function LeaveBoard({
               </option>
             ))}
           </select>
+          </div>
         )}
       </div>
 
@@ -523,7 +549,7 @@ function WeekRow({
               onClick={() => onPick(key)}
               className={`h-16 rounded-lg border p-1.5 text-left transition-colors ${
                 past
-                  ? "border-hairline bg-card-muted/40 opacity-55 cursor-not-allowed"
+                  ? "border-transparent bg-card-muted/30 opacity-40 cursor-not-allowed"
                   : weekOff
                   ? "border-brand-300 bg-brand-50 dark:border-brand-400/30 dark:bg-brand-400/10"
                   : leave

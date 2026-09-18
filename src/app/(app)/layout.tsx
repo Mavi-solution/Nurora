@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
+import { MigrationBanner } from "@/components/migration-banner";
 import { getSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,7 +35,10 @@ export default async function AppLayout({
         unreadMessages={dmCount ?? 0}
       />
       <main className="lg:pl-64">
-        <div className="mx-auto max-w-6xl px-4 lg:px-8 py-6 lg:py-8">{children}</div>
+        <div className="mx-auto max-w-6xl px-4 lg:px-8 py-6 lg:py-8">
+          <MigrationBanner profile={session.profile} />
+          {children}
+        </div>
       </main>
     </div>
   );

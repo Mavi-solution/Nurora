@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type React from "react";
 import { fieldClass } from "@/components/ui";
 import {
   DEFAULT_DIALING_CODE,
   DIALING_CODES,
   joinDialingCode,
+  normalisePhoneInput,
   splitDialingCode,
 } from "@/lib/dialing-codes";
 import { isValidPhone } from "@/lib/validation";
@@ -47,54 +49,69 @@ export function PhoneField({
   placeholder?: string;
   autoFocus?: boolean;
 }) {
-  const initial = splitDialingCode(value);
-  const [code, setCode] = useState(initial.code);
-  const [national, setNational] = useState(initial.national);
+  const [code, setCode] = useState(() => splitDialingCode(value).code);
+  const [national, setNational] = useState(() => splitDialingCode(value).national);
   const [touched, setTouched] = useState(false);
 
   /*
-   * Re-sync when the value is replaced from outside — picking a
-   * returning client fills their number in, and the two halves have to
-   * follow. Guarded on the JOINED value so typing does not fight the
-   * effect: the parent is told "+919840011223" and hands back the same
-   * string, which must not reset what is being typed.
+   * What we last handed the parent.
+   *
+   * The sync below has to tell "the parent replaced this value" from
+   * "the parent is echoing back what we just emitted". Comparing a
+   * re-joined string could not: joinDialingCode is lossy — it drops
+   * spaces, brackets and a trunk zero — so a number stored as
+   * "98400 11223" never equalled its own re-join, the effect fired on
+   * every render, and it overwrote whatever was being typed. Holding
+   * the emitted string is exact.
    */
+  const lastEmitted = useRef(value ?? "");
+
   useEffect(() => {
-    const joined = joinDialingCode(code, national);
-    if (joined === (value ?? "")) return;
-    const next = splitDialingCode(value);
+    const incoming = value ?? "";
+    if (incoming === lastEmitted.current) return;
+
+    // A genuine outside change — picking a returning client fills in
+    // their number, or a form resets.
+    const next = splitDialingCode(incoming);
+    lastEmitted.current = incoming;
     setCode(next.code);
     setNational(next.national);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  /**
+   * Store exactly what was typed.
+   *
+   * No re-splitting, no rewriting, no cursor surprises. Tidying happens
+   * on paste and on blur instead — see normalisePhoneInput.
+   */
   function emit(nextCode: string, nextNational: string) {
-    /*
-     * A full international number typed or pasted into the national
-     * box splits itself.
-     *
-     * People paste "+91 98400 11223" out of WhatsApp without first
-     * noticing there is a separate code dropdown. Treating that as a
-     * local number would store "+9191984001122" — a number that looks
-     * plausible, saves without complaint, and can never be delivered
-     * to. Only an explicit "+" or "00" triggers this: a bare
-     * "9840011223" is a local number, not a Nigerian one.
-     */
-    const typed = nextNational.trim();
-    if (typed.startsWith("+") || typed.startsWith("00")) {
-      const split = splitDialingCode(typed);
-      if (split.national) {
-        setCode(split.code);
-        setNational(split.national);
-        onChange(joinDialingCode(split.code, split.national));
-        return;
-      }
-    }
-
     setCode(nextCode);
     setNational(nextNational);
-    onChange(joinDialingCode(nextCode, nextNational));
+    const out = joinDialingCode(nextCode, nextNational);
+    lastEmitted.current = out;
+    onChange(out);
   }
+
+  /** Apply the tidy-up and push the result up. */
+  function normalise(nextCode: string, nextNational: string) {
+    const tidy = normalisePhoneInput(nextCode, nextNational);
+    emit(tidy.code, tidy.national);
+  }
+
+  function onPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const pasted = e.clipboardData.getData("text");
+    if (!pasted) return;
+    // A pasted "+971 50 123 4567" sets the country too, which is the
+    // whole point of pasting a number you were given in full.
+    e.preventDefault();
+    normalise(code, pasted);
+  }
+
+  function onBlurNormalise() {
+    setTouched(true);
+    normalise(code, national);
+  }
+
 
   const joined = joinDialingCode(code, national);
 
@@ -133,45 +150,63 @@ export function PhoneField({
 
       {name && <input type="hidden" name={name} value={joined} />}
 
-      <div className="flex gap-2">
-        {/*
-          Named "Country code", NOT "<label> country code". A select
-          nested near a labelled field otherwise ends up owning the
-          field's name, and the number box — the control anyone actually
-          wants — is left with none at all.
-        */}
-        <select
-          value={code}
-          disabled={disabled}
-          title={`Country code for ${label.toLowerCase()}`}
-          aria-label="Country code"
-          onChange={(e) => emit(e.target.value, national)}
-          className={`${fieldClass} w-[8.5rem] shrink-0 tabular-nums`}
-        >
-          {DIALING_CODES.map((c) => (
-            <option key={`${c.iso}-${c.code}`} value={c.code}>
-              +{c.code} {c.iso}
-            </option>
-          ))}
-        </select>
+      {/*
+        The two controls are sized by WRAPPERS, not by adding a width
+        class to the control itself.
 
-        <input
-          type="tel"
-          inputMode="tel"
-          aria-label={label}
-          autoComplete="tel-national"
-          autoFocus={autoFocus}
-          disabled={disabled}
-          value={national}
-          placeholder={placeholder}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy}
-          onChange={(e) => emit(code, e.target.value)}
-          onBlur={() => setTouched(true)}
-          className={`${fieldClass} flex-1 min-w-0 ${
-            error ? "border-red-400 focus:border-red-500 focus:ring-red-500/12" : ""
-          }`}
-        />
+        fieldClass already carries w-full, and `${fieldClass} w-[8.5rem]`
+        sets the same CSS property twice — which of the two wins is
+        decided by the order Tailwind happens to emit them in the
+        stylesheet, not by the order they appear here. w-full won: the
+        dialling-code select took the entire row, shrink-0 stopped it
+        giving any back, and the number box collapsed to thirty pixels.
+        That is the whole of "can't enter mobile number" — the field was
+        there, and there was nowhere to type.
+      */}
+      <div className="flex gap-2">
+        <div className="w-[8.5rem] shrink-0">
+          {/*
+            Named "Country code", NOT "<label> country code". A select
+            nested near a labelled field otherwise ends up owning the
+            field's name, and the number box — the control anyone
+            actually wants — is left with none at all.
+          */}
+          <select
+            value={code}
+            disabled={disabled}
+            title={`Country code for ${label.toLowerCase()}`}
+            aria-label="Country code"
+            onChange={(e) => emit(e.target.value, national)}
+            className={`${fieldClass} tabular-nums`}
+          >
+            {DIALING_CODES.map((c) => (
+              <option key={`${c.iso}-${c.code}`} value={c.code}>
+                +{c.code} {c.iso}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <input
+            type="tel"
+            inputMode="tel"
+            aria-label={label}
+            autoComplete="tel-national"
+            autoFocus={autoFocus}
+            disabled={disabled}
+            value={national}
+            placeholder={placeholder}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy}
+            onChange={(e) => emit(code, e.target.value)}
+            onPaste={onPaste}
+            onBlur={onBlurNormalise}
+            className={`${fieldClass} ${
+              error ? "border-red-400 focus:border-red-500 focus:ring-red-500/12" : ""
+            }`}
+          />
+        </div>
       </div>
 
       {error ? (

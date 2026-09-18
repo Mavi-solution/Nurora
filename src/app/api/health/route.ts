@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { serverEnv } from "@/lib/server-env";
+import { missingMigrations } from "@/lib/data/schema-health";
 import { misprefixedVars, serviceRoleKey } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,11 @@ export async function GET() {
       .sort(),
     // NEXT_PUBLIC_* are inlined when the bundle is built, so a value
     // added AFTER the last build will not be present until you redeploy.
+    // Migrations the database has not had run. A feature missing for
+    // this reason looks identical to one that is broken, from the
+    // outside, so it is worth stating plainly — it belongs beside
+    // `schema`, which answers the same question about tables.
+    migrationsPending: await missingMigrations(),
     buildStamp: {
       commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
       env: process.env.VERCEL_ENV ?? "local",

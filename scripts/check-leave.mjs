@@ -29,6 +29,21 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("response", (r) => { if (r.status() >= 500) errors.push(`${r.status()} ${r.url()}`); });
 
+/**
+ * Past days are not selectable by default — for admins either, since an
+ * admin account is what a practice uses day to day. Correcting a month
+ * that has gone is a deliberate act, so it has a deliberate switch.
+ *
+ * August 2026 is one of the two months ARCHITECTURE.md names as the
+ * acceptance test for the quota rule, so the test has to reach it
+ * whatever today's date happens to be.
+ */
+async function allowPastDays() {
+  const box = page.getByLabel("Allow past days");
+  if (await box.count()) await box.check();
+  await page.waitForTimeout(250);
+}
+
 // Take a week-off on the given day-of-month, via the calendar.
 async function takeWeekOff(day) {
   await page.getByRole("button", { name: String(day), exact: true }).first().click();
@@ -69,6 +84,7 @@ try {
   /* --- one per week, then the quota itself -------------------------- */
   step("August 2026: one week-off per week, then the allowance runs out");
   await page.goto(`${APP}/leave?month=2026-08`, { waitUntil: "networkidle" });
+  await allowPastDays();
 
   // August 2026 rows after merging: 1-8, 9-15, 16-22, 23-31.
   check("first week-off is accepted", (await takeWeekOff(3)) === "taken");
@@ -81,6 +97,7 @@ try {
   check("a week-off in week 4 is accepted", (await takeWeekOff(24)) === "taken");
 
   await page.reload({ waitUntil: "networkidle" });
+  await allowPastDays();
   const fifth = await takeWeekOff(26);
   check("a fifth is refused once the allowance is spent",
     fifth === "blocked" || /allows 4|Only one per week/i.test(fifth), fifth);

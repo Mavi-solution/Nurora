@@ -34,11 +34,25 @@ export function NewCounsellorButton({
   const [sessionFee, setSessionFee] = useState("2000");
   const [duration, setDuration] = useState(60);
   const [languages, setLanguages] = useState<string[]>(["English"]);
+  const [preferredLanguage, setPreferredLanguage] = useState("English");
   const [specialismIds, setSpecialismIds] = useState<string[]>([]);
   const [password, setPassword] = useState(() => suggestPassword());
 
   function toggle(list: string[], value: string, set: (v: string[]) => void) {
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+  }
+
+  /*
+   * Turning a language off must not leave it as the preferred one.
+   * Handled here rather than only on the server so the dropdown below
+   * never offers a language the chips no longer show.
+   */
+  function toggleLanguage(value: string) {
+    const next = languages.includes(value)
+      ? languages.filter((l) => l !== value)
+      : [...languages, value];
+    setLanguages(next);
+    if (!next.includes(preferredLanguage)) setPreferredLanguage(next[0] ?? "");
   }
 
   function reset() {
@@ -50,6 +64,7 @@ export function NewCounsellorButton({
     setDuration(60);
     setTimezone(defaultTimezone || DEFAULT_TIMEZONE);
     setLanguages(["English"]);
+    setPreferredLanguage("English");
     setSpecialismIds([]);
     setPassword(suggestPassword());
     setError(null);
@@ -77,6 +92,7 @@ export function NewCounsellorButton({
         headline,
         timezone,
         languages,
+        preferredLanguage,
         specialismIds,
         sessionFee: Number(sessionFee || 0),
         durationMinutes: duration,
@@ -239,7 +255,7 @@ export function NewCounsellorButton({
                   <button
                     key={l}
                     type="button"
-                    onClick={() => toggle(languages, l, setLanguages)}
+                    onClick={() => toggleLanguage(l)}
                     aria-pressed={on}
                     className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
                       on
@@ -252,6 +268,26 @@ export function NewCounsellorButton({
                 );
               })}
             </div>
+
+            {languages.length > 1 && (
+              <div className="mt-3">
+                <Field
+                  label="Preferred language"
+                  hint="Which of those they would rather work in. Shown first to the desk."
+                >
+                  <select
+                    value={preferredLanguage}
+                    onChange={(e) => setPreferredLanguage(e.target.value)}
+                    aria-label="Preferred language"
+                    className={fieldClass}
+                  >
+                    {languages.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-3">

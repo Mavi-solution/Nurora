@@ -18,13 +18,28 @@ import type { CounsellorSummary } from "@/lib/types";
  */
 export function describeCounsellor(c: CounsellorSummary): string {
   const bits: string[] = [];
-  const languages = (c.languages ?? []).filter(Boolean);
+  const languages = orderedLanguages(c);
   const specialisms = (c.specialisms ?? []).filter(Boolean);
 
   if (languages.length > 0) bits.push(languages.join(", "));
   if (specialisms.length > 0) bits.push(specialisms.join(", "));
 
   return bits.length > 0 ? `${c.full_name} — ${bits.join(" · ")}` : c.full_name;
+}
+
+/**
+ * Languages with the preferred one first.
+ *
+ * Which language a counsellor would RATHER work in is a different
+ * question from which ones they can work in, and it is the one the
+ * desk answers when a caller asks "who is best for my mother, she is
+ * more comfortable in Tamil".
+ */
+export function orderedLanguages(c: CounsellorSummary): string[] {
+  const all = (c.languages ?? []).filter(Boolean);
+  const preferred = c.preferred_language;
+  if (!preferred || !all.includes(preferred)) return all;
+  return [preferred, ...all.filter((l) => l !== preferred)];
 }
 
 export function CounsellorSelect({
@@ -45,7 +60,7 @@ export function CounsellorSelect({
   hint?: string;
 }) {
   const chosen = counsellors.find((c) => c.id === value);
-  const languages = (chosen?.languages ?? []).filter(Boolean);
+  const languages = chosen ? orderedLanguages(chosen) : [];
   const specialisms = (chosen?.specialisms ?? []).filter(Boolean);
 
   return (
@@ -78,10 +93,17 @@ export function CounsellorSelect({
           {languages.map((l) => (
             <span
               key={`lang-${l}`}
-              title="Can hold the session in this language"
+              title={
+                l === chosen?.preferred_language
+                  ? "Prefers to work in this language"
+                  : "Can hold the session in this language"
+              }
               className="rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] text-brand-800 dark:border-brand-400/25 dark:bg-brand-400/10 dark:text-brand-200"
             >
               {l}
+              {l === chosen?.preferred_language && (
+                <span className="opacity-70"> · preferred</span>
+              )}
             </span>
           ))}
           {specialisms.map((s) => (

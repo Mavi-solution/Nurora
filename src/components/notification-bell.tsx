@@ -15,6 +15,7 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
   const [unread, setUnread] = useState(initialCount);
   const [loading, setLoading] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const supabase = createClient();
@@ -93,24 +94,31 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
    */
   function clearAll() {
     const had = items.length;
+    setError(null);
     setItems([]);
     setUnread(0);
     startTransition(async () => {
       const result = await clearNotifications();
       if (!result.ok) {
-        // Put them back rather than pretending they are gone.
+        // Put them back rather than pretending they are gone — and say
+        // why, or the list simply reappears with no explanation.
         await load();
         setUnread(had);
+        setError(result.error ?? "They could not be cleared.");
       }
     });
   }
 
   function dismiss(id: string) {
     const previous = items;
+    setError(null);
     setItems((list) => list.filter((n) => n.id !== id));
     startTransition(async () => {
       const result = await dismissNotification(id);
-      if (!result.ok) setItems(previous);
+      if (!result.ok) {
+        setItems(previous);
+        setError(result.error ?? "It could not be dismissed.");
+      }
     });
   }
 
@@ -163,6 +171,12 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
               View all
             </Link>
           </div>
+
+          {error && (
+            <p className="px-4 py-3 text-[12px] text-red-700 bg-red-50 border-b border-hairline leading-relaxed dark:text-red-300 dark:bg-red-500/10">
+              {error}
+            </p>
+          )}
 
           <div className="max-h-80 overflow-y-auto">
             {loading && (

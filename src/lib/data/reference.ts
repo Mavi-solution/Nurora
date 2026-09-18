@@ -68,7 +68,7 @@ const CACHE_ENABLED = process.env.NODE_ENV === "production";
 
 const SERVICE_COLUMNS = "*";
 const COUNSELLOR_COLUMNS =
-  "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages";
+  "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages, preferred_language";
 
 /* ------------------------------------------------------------ services */
 

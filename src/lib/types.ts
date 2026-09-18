@@ -39,6 +39,8 @@ export type Profile = {
   notify_whatsapp: boolean;
   /** Languages this counsellor can hold a session in. */
   languages: string[];
+  /** Which of those they would rather work in. */
+  preferred_language: string | null;
   /** Freelance counsellor: paid per completed session, not salaried. */
   is_nulancer: boolean;
   nulancer_individual_cents: number | null;
@@ -528,6 +530,7 @@ export type CounsellorSummary = Pick<
   | "default_duration_minutes"
   | "currency"
   | "languages"
+  | "preferred_language"
 > & {
   /**
    * What they specialise in, as plain names.

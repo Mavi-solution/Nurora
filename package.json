@@ -32,7 +32,9 @@
     "test:validation": "supabase db reset && node scripts/check-validation.mjs",
     "test:qa3": "supabase db reset && node scripts/check-qa-round3.mjs",
     "test:templates": "supabase db reset && node scripts/check-messaging-templates.mjs",
-    "test:qa4": "supabase db reset && node scripts/check-qa-round4.mjs"
+    "test:qa4": "supabase db reset && node scripts/check-qa-round4.mjs",
+    "test:phone": "node scripts/check-phone-input.mjs",
+    "test:qa5": "supabase db reset && node scripts/check-qa-round5.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

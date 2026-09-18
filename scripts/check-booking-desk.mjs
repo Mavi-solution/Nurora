@@ -101,7 +101,14 @@ try {
   );
 
   await page.getByLabel("Needs help with").selectOption({ label: "Anxiety" });
-  await page.waitForTimeout(1500);
+
+  // Wait for the search to finish, not for a stopwatch. A fixed pause
+  // passed most of the time and failed under load, which is the worst
+  // of both: a flake that looks like a regression.
+  await page
+    .getByText("Checking availability…")
+    .waitFor({ state: "detached", timeout: 20000 })
+    .catch(() => {});
 
   // Anisha and Saranya both do Anxiety; only some also speak Tamil.
   const laneNames = await page.locator(".text-\\[14px\\].font-medium").allTextContents();

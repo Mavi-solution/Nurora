@@ -20,6 +20,7 @@ const counsellorSchema = z.object({
   bio: z.string().trim().max(2000).optional(),
   timezone: z.string().trim().min(1).max(64),
   languages: z.array(z.string().trim().min(1).max(40)).max(12),
+  preferredLanguage: z.string().trim().max(40).optional(),
   specialismIds: z.array(z.string().uuid()).max(20),
   sessionFee: z.coerce.number().min(0).max(1_000_000),
   durationMinutes: z.coerce.number().int().min(10).max(480),
@@ -38,6 +39,22 @@ const counsellorSchema = z.object({
  * with a temporary password to hand over. They can change it under
  * Settings once they sign in.
  */
+/**
+ * A preference has to be one of the languages on offer.
+ *
+ * Both are edited in the same form, so a counsellor can drop the very
+ * language they had marked preferred. Rather than refuse the save over
+ * something the person almost certainly did not mean, the preference
+ * follows: it falls back to whatever they can still work in.
+ */
+function settlePreferredLanguage(
+  languages: string[],
+  preferred: string | undefined,
+): string | null {
+  if (preferred && languages.includes(preferred)) return preferred;
+  return languages[0] ?? null;
+}
+
 export async function createCounsellor(input: unknown) {
   const parsed = counsellorSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
@@ -86,6 +103,7 @@ export async function createCounsellor(input: unknown) {
       bio: v.bio || null,
       timezone: v.timezone,
       languages: v.languages,
+      preferred_language: settlePreferredLanguage(v.languages, v.preferredLanguage),
       currency: v.currency.toUpperCase(),
       default_session_fee_cents: Math.round(v.sessionFee * 100),
       default_duration_minutes: v.durationMinutes,
@@ -134,7 +152,16 @@ export async function updateCounsellor(counsellorId: string, input: unknown) {
   if (v.headline !== undefined) patch.headline = v.headline || null;
   if (v.bio !== undefined) patch.bio = v.bio || null;
   if (v.timezone !== undefined) patch.timezone = v.timezone;
-  if (v.languages !== undefined) patch.languages = v.languages;
+  if (v.languages !== undefined) {
+    patch.languages = v.languages;
+    // Settled against the languages being saved in the SAME request,
+    // so dropping a language cannot leave a preference pointing at one
+    // they no longer work in.
+    patch.preferred_language = settlePreferredLanguage(
+      v.languages,
+      v.preferredLanguage,
+    );
+  }
   if (v.currency !== undefined) patch.currency = v.currency.toUpperCase();
   if (v.sessionFee !== undefined) {
     patch.default_session_fee_cents = Math.round(v.sessionFee * 100);

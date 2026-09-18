@@ -143,6 +143,34 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const status: Record<string, string> = {};
 
+  /*
+   * Bucket by counsellor once, rather than re-scanning every rule,
+   * exception and booking inside the day loop.
+   *
+   * The loop runs days x counsellors — 31 x the roster — and each
+   * iteration was filtering three arrays end to end, so the work grew
+   * with the number of APPOINTMENTS in the month as well as the size of
+   * the roster. Grouping first makes each iteration a map lookup, and
+   * the per-counsellor constants (timezone, today, duration) are
+   * resolved once instead of thirty-one times.
+   */
+  const rulesFor = groupBy(allRules, (r) => r.counsellor_id);
+  const busyFor = groupBy(allBusy, (b) => b.counsellor_id);
+  const exceptionsFor = new Map<string, AvailabilityException[]>();
+  for (const e of allExceptions) {
+    const key = `${e.counsellor_id}:${e.on_date}`;
+    exceptionsFor.set(key, [...(exceptionsFor.get(key) ?? []), e]);
+  }
+
+  const plan = counsellors.map((c) => ({
+    id: c.id,
+    timezone: c.timezone,
+    minutes: duration || c.default_duration_minutes || 60,
+    todayKey: dateKeyInTimeZone(now, c.timezone),
+    rules: rulesFor.get(c.id) ?? [],
+    busy: busyFor.get(c.id) ?? [],
+  }));
+
   for (const day of allDays) {
     const daysOff = daysOffOn(day);
 
@@ -151,28 +179,24 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
+    const [y, m, d] = day.split("-").map(Number);
     let free = 0;
     let anyWorking = false;
 
-    for (const c of counsellors) {
+    for (const c of plan) {
       if (daysOff.off.has(c.id)) continue;
       anyWorking = true;
-
-      const [y, m, d] = day.split("-").map(Number);
-      const todayKey = dateKeyInTimeZone(now, c.timezone);
 
       free += generateSlots({
         dateKey: day,
         timezone: c.timezone,
-        durationMinutes: duration || c.default_duration_minutes || 60,
+        durationMinutes: c.minutes,
         stepMinutes: 30,
-        rules: allRules.filter((r) => r.counsellor_id === c.id),
-        exceptions: allExceptions.filter(
-          (e) => e.counsellor_id === c.id && e.on_date === day,
-        ),
-        busy: allBusy.filter((b) => b.counsellor_id === c.id),
+        rules: c.rules,
+        exceptions: exceptionsFor.get(`${c.id}:${day}`) ?? [],
+        busy: c.busy,
         notBefore:
-          day === todayKey ? now : zonedTimeToUtc(y, m, d, 0, 0, c.timezone),
+          day === c.todayKey ? now : zonedTimeToUtc(y, m, d, 0, 0, c.timezone),
       }).length;
     }
 
@@ -185,4 +209,16 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ status });
+}
+
+/** Group rows by a key, in one pass. */
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const k = key(row);
+    const list = out.get(k);
+    if (list) list.push(row);
+    else out.set(k, [row]);
+  }
+  return out;
 }

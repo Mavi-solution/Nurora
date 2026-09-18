@@ -115,7 +115,7 @@ export default async function SchedulePage({
     const { data: orphanRows } = await supabase
       .from("profiles")
       .select(
-        "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages",
+        "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages, preferred_language",
       )
       .in("id", orphanIds);
     offRosterCounsellors = (orphanRows ?? []) as CounsellorSummary[];
