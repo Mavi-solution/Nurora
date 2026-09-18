@@ -1,10 +1,23 @@
 import type { SendResult } from "./email";
 import { toE164 } from "./phone";
+import { serverEnv } from "../server-env";
 
-const sid = process.env.TWILIO_ACCOUNT_SID;
-const token = process.env.TWILIO_AUTH_TOKEN;
-const smsFrom = process.env.TWILIO_SMS_FROM;
-const whatsappFrom = process.env.TWILIO_WHATSAPP_FROM; // e.g. whatsapp:+14155238886
+/*
+ * Read per call rather than once at module scope.
+ *
+ * Module-level constants freeze whatever the environment held when the
+ * module first loaded — and a literal process.env.X can be replaced at
+ * build time entirely. Vercel withholds Secret-type variables from the
+ * build, so the app insisted WhatsApp was unconfigured while the
+ * variables were plainly there at runtime.
+ */
+const twilio = () => ({
+  sid: serverEnv("TWILIO_ACCOUNT_SID"),
+  token: serverEnv("TWILIO_AUTH_TOKEN"),
+  smsFrom: serverEnv("TWILIO_SMS_FROM"),
+  // e.g. whatsapp:+14155238886
+  whatsappFrom: serverEnv("TWILIO_WHATSAPP_FROM"),
+});
 
 type Channel = "sms" | "whatsapp";
 
@@ -30,6 +43,7 @@ async function twilioSend(
   from: string,
   payload: { body: string } | { template: WhatsAppTemplate },
 ): Promise<SendResult> {
+  const { sid, token } = twilio();
   const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
   const params = new URLSearchParams({ To: to, From: from });
 
@@ -61,6 +75,7 @@ async function twilioSend(
 }
 
 export async function sendSms(to: string, body: string): Promise<SendResult> {
+  const { sid, token, smsFrom } = twilio();
   if (!sid || !token || !smsFrom) {
     return { ok: false, skipped: true, error: "Twilio SMS not configured" };
   }
@@ -83,6 +98,7 @@ export async function sendWhatsApp(
   body: string,
   template?: WhatsAppTemplate | null,
 ): Promise<SendResult> {
+  const { sid, token, whatsappFrom } = twilio();
   if (!sid || !token || !whatsappFrom) {
     return { ok: false, skipped: true, error: "Twilio WhatsApp not configured" };
   }
@@ -103,8 +119,9 @@ export async function sendWhatsApp(
   );
 }
 
-/** True when at least one Twilio channel is usable. */
+/** True when WhatsApp can actually send, checked against the live env. */
 export function whatsappConfigured(): boolean {
+  const { sid, token, whatsappFrom } = twilio();
   return Boolean(sid && token && whatsappFrom);
 }
 

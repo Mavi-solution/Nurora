@@ -1,9 +1,22 @@
 import { Resend } from "resend";
+import { serverEnv } from "../server-env";
 
-const apiKey = process.env.RESEND_API_KEY;
-const from = process.env.RESEND_FROM_EMAIL ?? "Nurora <onboarding@resend.dev>";
+/* Built per call, for the same reason as sms.ts: a module-scope read
+ * freezes the value and can be substituted at build time, so a key
+ * supplied only at runtime would never be seen. */
+function client(): { resend: Resend; from: string } | null {
+  const apiKey = serverEnv("RESEND_API_KEY");
+  if (!apiKey) return null;
+  return {
+    resend: new Resend(apiKey),
+    from: serverEnv("RESEND_FROM_EMAIL") ?? "Nurora <onboarding@resend.dev>",
+  };
+}
 
-const resend = apiKey ? new Resend(apiKey) : null;
+/** True when email can actually send. */
+export function emailConfigured(): boolean {
+  return serverEnv("RESEND_API_KEY") !== undefined;
+}
 
 export type SendResult = {
   ok: boolean;
@@ -17,13 +30,14 @@ export async function sendEmail(opts: {
   html: string;
   text: string;
 }): Promise<SendResult> {
-  if (!resend) {
+  const c = client();
+  if (!c) {
     return { ok: false, skipped: true, error: "RESEND_API_KEY not configured" };
   }
 
   try {
-    const { error } = await resend.emails.send({
-      from,
+    const { error } = await c.resend.emails.send({
+      from: c.from,
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
