@@ -221,6 +221,14 @@ export function generateSlots(opts: {
   busy: BusyRange[];
   /** Slots starting before this instant are dropped. */
   notBefore?: Date;
+  /**
+   * The counsellor is off that day — a week-off, approved leave, or a
+   * clinic holiday. Returns no slots at all rather than filtering them
+   * one by one: a day off is a property of the day, not of each hour,
+   * and offering even one slot on it invites a booking nobody will
+   * turn up for.
+   */
+  dayOff?: boolean;
 }): Slot[] {
   const {
     dateKey,
@@ -231,7 +239,10 @@ export function generateSlots(opts: {
     exceptions,
     busy,
     notBefore = new Date(),
+    dayOff = false,
   } = opts;
+
+  if (dayOff) return [];
 
   const weekday = weekdayOfDateKey(dateKey);
   const dayExceptions = exceptions.filter((e) => e.on_date === dateKey);

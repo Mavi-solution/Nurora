@@ -44,6 +44,12 @@ export function toE164(phone: string | null | undefined): string | null {
   const local = digits.replace(/^0+/, "");
   if (!local) return null;
 
+  // E.164 allows 15 digits at most. Prefixing a country code can push a
+  // long local number past that, and the result would be silently
+  // undialable — better to reject it than to hand Twilio a number that
+  // cannot exist.
+  if (codeDigits.length + local.length > 15) return null;
+
   return `${code}${local}`;
 }
 

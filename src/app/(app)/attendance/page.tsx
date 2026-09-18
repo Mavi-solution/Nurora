@@ -45,6 +45,43 @@ export default async function AttendancePage({
   );
   const open = shifts.filter((s) => !s.checked_out_at).length;
 
+  /*
+   * Hours per person, this week and this month.
+   *
+   * The log alone answered "who checked in when" but not "how much has
+   * this counsellor actually worked", which is the question an admin
+   * comes to this page with — and the one payroll needs for NuLancers.
+   */
+  const now2 = new Date();
+  const weekStart = new Date(now2);
+  weekStart.setDate(now2.getDate() - ((now2.getDay() + 6) % 7)); // Monday
+  weekStart.setHours(0, 0, 0, 0);
+  const monthStart = new Date(now2.getFullYear(), now2.getMonth(), 1);
+
+  type Tally = { name: string; week: number; month: number; range: number };
+  const perPerson = new Map<string, Tally>();
+
+  for (const s of shifts) {
+    const staff = Array.isArray(s.staff) ? s.staff[0] : s.staff;
+    const id = (staff?.id as string) ?? "unknown";
+    const mins = (s.duration_minutes as number) ?? 0;
+    const at = new Date(s.checked_in_at as string);
+
+    const t = perPerson.get(id) ?? {
+      name: (staff?.full_name as string) ?? "Unknown",
+      week: 0,
+      month: 0,
+      range: 0,
+    };
+    t.range += mins;
+    if (at >= weekStart) t.week += mins;
+    if (at >= monthStart) t.month += mins;
+    perPerson.set(id, t);
+  }
+
+  const tallies = [...perPerson.values()].sort((a, b) => b.range - a.range);
+  const hm = (m: number) => `${Math.floor(m / 60)}h ${m % 60}m`;
+
   return (
     <div>
       <div className="mb-6">
@@ -62,6 +99,45 @@ export default async function AttendancePage({
         />
         <Stat label="Currently in" value={String(open)} sub="not checked out" />
       </div>
+
+      <Card className="mb-4 overflow-hidden">
+        <CardHeader
+          title="Hours worked"
+          description={
+            admin
+              ? "Per counsellor — this week, this month, and across the range below."
+              : "Your hours — this week, this month, and across the range below."
+          }
+        />
+        {tallies.length === 0 ? (
+          <p className="px-5 py-6 text-[13px] text-muted text-center">
+            Nothing logged in this window.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-hairline text-left text-[12px] uppercase tracking-[0.08em] text-faint">
+                  <th className="px-5 py-2.5 font-medium">Who</th>
+                  <th className="px-3 py-2.5 font-medium text-right">This week</th>
+                  <th className="px-3 py-2.5 font-medium text-right">This month</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Range shown</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tallies.map((t) => (
+                  <tr key={t.name} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-3 font-medium">{t.name}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{hm(t.week)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{hm(t.month)}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-muted">{hm(t.range)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card className="overflow-hidden">
         <CardHeader

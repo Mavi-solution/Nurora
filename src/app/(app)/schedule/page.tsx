@@ -1,4 +1,5 @@
 import { listStaffMates } from "@/lib/actions/team";
+import { loadDaysOff } from "@/lib/business/days-off";
 import { getAppointmentTags, getCounsellors, getServices } from "@/lib/data/reference";
 import { CLINICIAN_ROLES, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -92,6 +93,36 @@ export default async function SchedulePage({
   ]);
 
   const appointments = (appointmentRows ?? []) as AppointmentRow[];
+
+  /*
+   * Lanes come from the ACTIVE roster, but a booking must never become
+   * invisible. Retiring a counsellor left their existing appointments in
+   * the database with nowhere on screen to show them — a client would
+   * arrive and nobody would know. Anyone with a booking today gets a
+   * lane whether or not they are still on the roster.
+   */
+  const laneIds = new Set(counsellors.map((c) => c.id));
+  const orphanIds = [
+    ...new Set(
+      appointments
+        .map((a) => a.counsellor_id)
+        .filter((id) => id && !laneIds.has(id)),
+    ),
+  ];
+
+  let offRosterCounsellors: CounsellorSummary[] = [];
+  if (orphanIds.length > 0) {
+    const { data: orphanRows } = await supabase
+      .from("profiles")
+      .select(
+        "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages",
+      )
+      .in("id", orphanIds);
+    offRosterCounsellors = (orphanRows ?? []) as CounsellorSummary[];
+  }
+
+  const allCounsellors = [...counsellors, ...offRosterCounsellors];
+  const offRoster = new Set(offRosterCounsellors.map((c) => c.id));
   const rules = (ruleRows ?? []) as AvailabilityRule[];
   const exceptions = (exceptionRows ?? []) as AvailabilityException[];
   const clients = (clientRows ?? []) as ClientSummary[];
@@ -119,10 +150,11 @@ export default async function SchedulePage({
     invoiceByAppointment.set(invoice.appointment_id, invoice);
   }
 
+  const daysOff = await loadDaysOff(dateKey);
   const onShift = new Set((openShiftRows ?? []).map((s) => s.staff_id as string));
   const now = new Date();
 
-  const lanes: ScheduleLane[] = counsellors
+  const lanes: ScheduleLane[] = allCounsellors
     .filter((c) => counsellorFilter === "all" || c.id === counsellorFilter)
     .map((counsellor) => {
       const mine = appointments
@@ -139,6 +171,7 @@ export default async function SchedulePage({
         .map((a) => ({ starts_at: a.starts_at, ends_at: a.ends_at }));
 
       const openSlots = generateSlots({
+        dayOff: daysOff.off.has(counsellor.id) || daysOff.holiday !== null,
         dateKey,
         timezone: counsellor.timezone,
         durationMinutes: counsellor.default_duration_minutes || 60,
@@ -160,8 +193,12 @@ export default async function SchedulePage({
         openSlots,
         isOnShift: onShift.has(counsellor.id),
         activeAppointmentId: running?.id ?? null,
+        offRoster: offRoster.has(counsellor.id),
       };
-    });
+    })
+    // A counsellor who is off the roster only earns a lane while they
+    // still have something booked; once the day is clear they drop off.
+    .filter((lane) => !lane.offRoster || lane.appointments.length > 0);
 
   const myOpenShift = (openShiftRows ?? []).find(
     (s) => s.staff_id === profile.id,

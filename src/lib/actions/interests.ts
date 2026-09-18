@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { advanceRequirement } from "@/lib/business/billing";
 import { bookingFormSchema } from "@/lib/business/booking-form";
 import { billingSettingsFromClinic } from "@/lib/business/clinic-settings";
+import { loadDaysOff } from "@/lib/business/days-off";
 import { toE164 } from "@/lib/notify/phone";
 import { createClient } from "@/lib/supabase/server";
 import type { InterestRow } from "@/lib/types";
@@ -98,6 +99,20 @@ export async function saveBooking(input: unknown) {
 
   /* --------------------------------------------------------- a booking */
   if (!v.startsAt) return fail("Pick a time slot to confirm the booking.");
+
+  // Hiding the slots is not enough on its own — this is the check that
+  // actually holds, since a request can arrive from a stale page or
+  // straight from the API.
+  const daysOff = await loadDaysOff(v.onDate);
+  const offReason = daysOff.reasonFor(v.counsellorId);
+  if (offReason) {
+    const who = daysOff.holiday
+      ? "That day"
+      : "That counsellor";
+    return fail(
+      `${who} is unavailable on ${v.onDate} — ${offReason}. Pick another day, or save this as an Interest.`,
+    );
+  }
 
   // A new caller becomes a client record; a follow-up reuses theirs.
   let clientId = v.clientId ?? null;

@@ -520,4 +520,6 @@ export type ScheduleLane = {
   openSlots: { startsAt: string; endsAt: string; label: string }[];
   isOnShift: boolean;
   activeAppointmentId: string | null;
+  /** No longer on the active roster, but still has bookings to honour. */
+  offRoster?: boolean;
 };

@@ -1,4 +1,5 @@
 import { CLINICIAN_ROLES } from "@/lib/auth";
+import { loadDaysOff } from "@/lib/business/days-off";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -77,6 +78,8 @@ export async function GET(request: NextRequest) {
 
   const todayKey = dateKeyInTimeZone(new Date(), tz);
 
+  const daysOff = await loadDaysOff(dateKey);
+
   const slots = generateSlots({
     dateKey,
     timezone: tz,
@@ -85,6 +88,7 @@ export async function GET(request: NextRequest) {
     rules: (rules ?? []) as AvailabilityRule[],
     exceptions: (exceptions ?? []) as AvailabilityException[],
     busy: busy ?? [],
+    dayOff: daysOff.off.has(counsellorId) || daysOff.holiday !== null,
     notBefore: dateKey === todayKey ? new Date() : dayStart,
   });
 

@@ -144,6 +144,26 @@ export function ScheduleBoard({
 
   return (
     <div className="pb-32">
+      {/* ------------------------------------- date, time and Today */}
+      <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
+        <span className="text-[13px] text-muted tabular-nums">
+          {new Date(`${dateKey}T12:00:00`).toLocaleDateString([], {
+            weekday: "long", day: "numeric", month: "long", year: "numeric",
+          })}
+        </span>
+        <Clock tz={tz} />
+        {!isToday && (
+          <Link
+            href={hrefFor({ date: todayKey })}
+            prefetch
+            onClick={(e) => { e.preventDefault(); go({ date: todayKey }); }}
+            className="h-8 px-3.5 grid place-items-center rounded-full border border-brand-300 bg-brand-50 text-brand-800 text-[13px] font-medium hover:bg-brand-100 transition-colors dark:border-brand-400/30 dark:bg-brand-400/10 dark:text-brand-100"
+          >
+            Back to today
+          </Link>
+        )}
+      </div>
+
       {/* ------------------------------------------------ check-in */}
       <div className="flex justify-center mb-6">
         <button
@@ -330,6 +350,36 @@ export function ScheduleBoard({
         }}
       />
     </div>
+  );
+}
+
+/**
+ * The wall clock, ticking, in the practice's timezone.
+ *
+ * Rendered only after mount: the server and the browser would otherwise
+ * disagree about the current minute and React would report a hydration
+ * mismatch.
+ */
+function Clock({ tz }: { tz: string }) {
+  const [now, setNow] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tick = () =>
+      setNow(
+        new Intl.DateTimeFormat([], {
+          timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: true,
+        }).format(new Date()),
+      );
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, [tz]);
+
+  if (!now) return null;
+  return (
+    <span className="text-[13px] font-medium tabular-nums" suppressHydrationWarning>
+      {now}
+    </span>
   );
 }
 
@@ -567,6 +617,11 @@ function LaneCard({
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-[15px] truncate">{counsellor.full_name}</p>
           <p className="text-[12px] text-muted">
+            {lane.offRoster && (
+              <span className="text-blush-800 dark:text-blush-300 font-medium">
+                No longer taking bookings ·{" "}
+              </span>
+            )}
             {booked} booked
             {openSlots.length > 0 && ` · ${openSlots.length} open`}
             {booked > 0 && ` · ${fullyDone}/${booked} completed`}
