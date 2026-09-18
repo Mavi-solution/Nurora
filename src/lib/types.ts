@@ -414,6 +414,51 @@ export type Benefit = {
   created_at: string;
 };
 
+export type MessageTrigger =
+  | "before_appointment"
+  | "after_appointment"
+  | "on_booking"
+  | "on_reschedule"
+  | "on_cancel";
+
+export type MessageAudience = "client" | "counsellor" | "both";
+
+export type MessageTemplate = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  channel: NotifyChannel;
+  body: string;
+  /** Approved Meta template, needed for business-initiated sends. */
+  content_sid: string | null;
+  /** Which placeholders map to {{1}}, {{2}} … in that Meta template. */
+  variables: string[];
+  is_active: boolean;
+  /** Referred to by key in code — editable, but never deletable. */
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MessageSchedule = {
+  id: string;
+  template_id: string;
+  name: string;
+  trigger: MessageTrigger;
+  offset_minutes: number;
+  audience: MessageAudience;
+  is_active: boolean;
+  last_run_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MessageTemplateWithSchedules = MessageTemplate & {
+  schedules: MessageSchedule[];
+};
+
 export type LeaveKind = "planned" | "sick" | "unpaid" | "auto";
 
 /** An org-wide closure. Applies to everyone. */

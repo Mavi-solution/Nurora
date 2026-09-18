@@ -30,7 +30,8 @@
     "schema:check": "node scripts/build-schema.mjs --check",
     "test:qa": "supabase db reset && node scripts/check-qa-fixes.mjs",
     "test:validation": "supabase db reset && node scripts/check-validation.mjs",
-    "test:qa3": "supabase db reset && node scripts/check-qa-round3.mjs"
+    "test:qa3": "supabase db reset && node scripts/check-qa-round3.mjs",
+    "test:templates": "supabase db reset && node scripts/check-messaging-templates.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

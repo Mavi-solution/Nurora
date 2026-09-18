@@ -82,7 +82,10 @@ export function AppNav({
           ? [{ href: "/reports", label: "Reports", icon: <ChartIcon /> }]
           : []),
         ...(manages
-          ? [{ href: "/clinic-settings", label: "Clinic settings", icon: <SlidersIcon /> }]
+          ? [
+              { href: "/messages", label: "Messages", icon: <SendIcon /> },
+              { href: "/clinic-settings", label: "Clinic settings", icon: <SlidersIcon /> },
+            ]
           : []),
         ...(manages
           ? [{ href: "/services", label: "Services & pricing", icon: <TagIcon /> }]
@@ -296,6 +299,11 @@ const TagIcon = () => (
   <svg {...icon}>
     <path d="M20.6 13.4 12 22l-9-9 8.6-8.6A2 2 0 0 1 13 3.8l7 .2.2 7a2 2 0 0 1-.6 1.4Z" />
     <circle cx="16" cy="8" r="1.3" />
+  </svg>
+);
+const SendIcon = () => (
+  <svg {...icon}>
+    <path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z" />
   </svg>
 );
 const SunIcon = () => (

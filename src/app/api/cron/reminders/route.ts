@@ -1,37 +1,30 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { appUrl } from "@/lib/auth";
-import { sendEmail } from "@/lib/notify/email";
-import { sendSms, sendWhatsApp } from "@/lib/notify/sms";
 import {
-  reminderHtml,
-  reminderSms,
-  reminderSubject,
-  reminderText,
-  type ReminderInput,
-} from "@/lib/notify/templates";
+  positionalVars,
+  renderTemplate,
+  varsForAppointment,
+} from "@/lib/business/render-message";
+import { sendEmail } from "@/lib/notify/email";
+import { toE164 } from "@/lib/notify/phone";
+import { sendSms, sendWhatsApp } from "@/lib/notify/sms";
+import { stripWhatsAppFormatting } from "@/lib/notify/message-templates";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { dateKeyInTimeZone } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const KIND = "reminder_3d";
-const LEAD_DAYS = 3;
-
-type ChannelResult = {
-  channel: "email" | "sms" | "whatsapp";
-  destination: string;
-  status: "sent" | "failed" | "skipped";
-  error?: string;
-};
-
 /**
- * Daily reminder sweep. Sends to BOTH the counsellor and the client for
- * every session exactly three days out.
+ * The scheduled-message sweep.
  *
- * Idempotency comes from notification_deliveries: a unique key per
- * (appointment, recipient, kind, channel) means re-running the job — or
- * Vercel retrying it — never double-sends.
+ * This used to be one reminder hard-coded to three days out. It now
+ * walks every active message_schedule, so the practice decides what
+ * goes out and when without a deploy.
+ *
+ * Idempotency is unchanged in spirit and still the important part: a
+ * ledger row per (appointment, recipient, kind, channel), where kind is
+ * the schedule's own id. Re-running the job — or the platform retrying
+ * it — never sends the same message twice, while a channel that FAILED
+ * is retried tomorrow because only 'sent' blocks a resend.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -45,154 +38,189 @@ export async function GET(request: NextRequest) {
   const supabase = createAdminClient();
   const now = new Date();
 
-  // Pull a generous window, then filter precisely per counsellor timezone.
-  const windowStart = new Date(now.getTime() + 1 * 86_400_000);
-  const windowEnd = new Date(now.getTime() + 6 * 86_400_000);
+  const { data: schedules, error: scheduleError } = await supabase
+    .from("message_schedules")
+    .select("*, template:message_templates (*)")
+    .eq("is_active", true)
+    .in("trigger", ["before_appointment", "after_appointment"]);
 
-  const { data: appointments, error } = await supabase
-    .from("appointments")
-    .select(
-      `id, starts_at, ends_at, title, location, meeting_url, status,
-       counsellor:profiles!appointments_counsellor_id_fkey (
-         id, full_name, email, phone, timezone,
-         notify_email, notify_sms, notify_whatsapp
-       ),
-       client:clients!appointments_client_id_fkey (
-         id, full_name, email, phone, user_id
-       )`,
-    )
-    .in("status", ["scheduled"])
-    .gte("starts_at", windowStart.toISOString())
-    .lte("starts_at", windowEnd.toISOString());
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (scheduleError) {
+    return NextResponse.json({ error: scheduleError.message }, { status: 500 });
   }
 
-  const base = appUrl();
+  const practice = process.env.NEXT_PUBLIC_PRACTICE_NAME?.trim() || "Nurora";
   const summary = {
-    scanned: appointments?.length ?? 0,
+    schedules: 0,
+    scanned: 0,
     due: 0,
     sent: 0,
     failed: 0,
     skipped: 0,
   };
 
-  for (const row of appointments ?? []) {
-    // PostgREST types embedded rows loosely; normalise to objects.
-    const counsellor = asOne(row.counsellor) as CounsellorRow | null;
-    const client = asOne(row.client) as ClientRow | null;
-    if (!counsellor || !client) continue;
+  for (const schedule of schedules ?? []) {
+    const template = asOne(schedule.template) as TemplateRow | null;
+    if (!template || !template.is_active) continue;
+    summary.schedules += 1;
 
-    const tz = counsellor.timezone || "Asia/Kolkata";
-    const todayKey = dateKeyInTimeZone(now, tz);
-    const sessionKey = dateKeyInTimeZone(new Date(row.starts_at), tz);
+    const offsetMs = (schedule.offset_minutes as number) * 60_000;
+    const before = schedule.trigger === "before_appointment";
 
-    if (daysBetween(todayKey, sessionKey) !== LEAD_DAYS) continue;
-    summary.due += 1;
+    // The window this run is responsible for. Deliberately generous —
+    // wider than the gap between runs — because the ledger stops
+    // duplicates, whereas a window too narrow silently drops a message
+    // if a run is late or missed.
+    const centre = before
+      ? new Date(now.getTime() + offsetMs)
+      : new Date(now.getTime() - offsetMs);
+    const from = new Date(centre.getTime() - 12 * 3_600_000);
+    const to = new Date(centre.getTime() + 12 * 3_600_000);
 
-    const durationMinutes = Math.round(
-      (new Date(row.ends_at).getTime() - new Date(row.starts_at).getTime()) /
-        60_000,
-    );
+    const { data: appointments } = await supabase
+      .from("appointments")
+      .select(
+        `id, starts_at, ends_at, title, location, meeting_url, status,
+         counsellor:profiles!appointments_counsellor_id_fkey (
+           id, full_name, email, phone, timezone,
+           notify_email, notify_sms, notify_whatsapp
+         ),
+         client:clients!appointments_client_id_fkey (
+           id, full_name, email, phone, user_id
+         ),
+         service:services (name)`,
+      )
+      // A cancelled session needs no reminder, and a completed one
+      // needs no nudge to attend.
+      .eq("status", before ? "scheduled" : "completed")
+      .gte("starts_at", from.toISOString())
+      .lte("starts_at", to.toISOString());
 
-    const common = {
-      startsAt: row.starts_at,
-      endsAt: row.ends_at,
-      timezone: tz,
-      durationMinutes,
-      title: row.title,
-      meetingUrl: row.meeting_url,
-      location: row.location,
-      appUrl: base,
-      appointmentId: row.id,
-    };
+    summary.scanned += appointments?.length ?? 0;
 
-    const counsellorKey = `staff:${counsellor.id}`;
-    const clientKey = `client:${client.id}`;
+    for (const row of appointments ?? []) {
+      const counsellor = asOne(row.counsellor) as CounsellorRow | null;
+      const client = asOne(row.client) as ClientRow | null;
+      if (!counsellor || !client) continue;
 
-    // Read the ledger BEFORE sending anything: a channel already marked
-    // sent must never go out twice, however often this job runs.
-    const alreadySent = await sentChannels(supabase, row.id, [
-      counsellorKey,
-      clientKey,
-    ]);
+      // Only the appointments whose moment has actually arrived.
+      const due = before
+        ? new Date(row.starts_at as string).getTime() - offsetMs
+        : new Date(row.ends_at as string).getTime() + offsetMs;
+      if (due > now.getTime()) continue;
+      summary.due += 1;
 
-    // ------------------------------------------------------ counsellor
-    const counsellorInput: ReminderInput = {
-      ...common,
-      recipientName: counsellor.full_name,
-      otherPartyName: client.full_name,
-      party: "counsellor",
-    };
+      const kind = `schedule:${schedule.id}`;
+      const tz = counsellor.timezone || "Asia/Kolkata";
 
-    const counsellorResults = await deliver(
-      counsellorInput,
-      {
-        email: counsellor.notify_email ? counsellor.email : null,
-        sms: counsellor.notify_sms ? counsellor.phone : null,
-        whatsapp: counsellor.notify_whatsapp ? counsellor.phone : null,
-      },
-      alreadySent.get(counsellorKey) ?? new Set(),
-    );
+      const vars = varsForAppointment({
+        clientFullName: client.full_name,
+        counsellorName: counsellor.full_name,
+        startsAt: row.starts_at as string,
+        endsAt: row.ends_at as string,
+        timezone: tz,
+        serviceName: asOne(row.service)?.name ?? (row.title as string),
+        practiceName: practice,
+        location: row.location as string | null,
+        meetingUrl: row.meeting_url as string | null,
+      });
 
-    await record(supabase, row.id, counsellorResults, {
-      recipient_key: counsellorKey,
-      recipient_id: counsellor.id,
-      recipient_label: counsellor.full_name,
-    });
+      const body = renderTemplate(template.body, vars);
+      const audience = schedule.audience as string;
 
-    await notifyInApp(
-      supabase,
-      counsellor.id,
-      counsellorKey,
-      row.id,
-      counsellorInput,
-      alreadySent.get(counsellorKey) ?? new Set(),
-    );
+      const targets: { key: string; phone: string | null; email: string | null; label: string; id: string; isClient: boolean }[] = [];
+      if (audience === "client" || audience === "both") {
+        targets.push({
+          key: `client:${client.id}`, phone: client.phone, email: client.email,
+          label: client.full_name, id: client.id, isClient: true,
+        });
+      }
+      if (audience === "counsellor" || audience === "both") {
+        targets.push({
+          key: `staff:${counsellor.id}`,
+          phone: counsellor.notify_whatsapp || counsellor.notify_sms ? counsellor.phone : null,
+          email: counsellor.notify_email ? counsellor.email : null,
+          label: counsellor.full_name, id: counsellor.id, isClient: false,
+        });
+      }
 
-    // ---------------------------------------------------------- client
-    const clientInput: ReminderInput = {
-      ...common,
-      recipientName: client.full_name,
-      otherPartyName: counsellor.full_name,
-      party: "client",
-    };
+      for (const target of targets) {
+        const alreadySent = await sentChannels(supabase, row.id as string, kind, target.key);
+        const results: ChannelResult[] = [];
 
-    // Clients have no notification preferences of their own — reach them
-    // on whatever contact details the practice holds.
-    const clientResults = await deliver(
-      clientInput,
-      {
-        email: client.email,
-        sms: process.env.TWILIO_WHATSAPP_FROM ? null : client.phone,
-        whatsapp: process.env.TWILIO_WHATSAPP_FROM ? client.phone : null,
-      },
-      alreadySent.get(clientKey) ?? new Set(),
-    );
+        if (template.channel === "whatsapp" || template.channel === "sms") {
+          const phone = toE164(target.phone);
+          if (phone && !alreadySent.has(template.channel)) {
+            const res =
+              template.channel === "whatsapp"
+                ? await sendWhatsApp(
+                    phone,
+                    body,
+                    template.content_sid
+                      ? {
+                          contentSid: template.content_sid,
+                          variables: positionalVars(template.variables ?? [], vars),
+                        }
+                      : null,
+                  )
+                : await sendSms(phone, stripWhatsAppFormatting(body));
 
-    await record(supabase, row.id, clientResults, {
-      recipient_key: clientKey,
-      recipient_client_id: client.id,
-      recipient_label: client.full_name,
-    });
+            results.push({
+              channel: template.channel,
+              destination: phone,
+              status: res.ok ? "sent" : res.skipped ? "skipped" : "failed",
+              error: res.error,
+            });
+          }
+        }
 
-    if (client.user_id) {
-      await notifyInApp(
-        supabase,
-        client.user_id,
-        clientKey,
-        row.id,
-        clientInput,
-        alreadySent.get(clientKey) ?? new Set(),
-      );
+        if (template.channel === "email" && target.email && !alreadySent.has("email")) {
+          const res = await sendEmail({
+            to: target.email,
+            subject: `${practice}: ${template.name}`,
+            text: stripWhatsAppFormatting(body),
+            html: `<pre style="font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;white-space:pre-wrap">${escapeHtml(
+              stripWhatsAppFormatting(body),
+            )}</pre>`,
+          });
+          results.push({
+            channel: "email", destination: target.email,
+            status: res.ok ? "sent" : res.skipped ? "skipped" : "failed",
+            error: res.error,
+          });
+        }
+
+        if (results.length > 0) {
+          await supabase.from("notification_deliveries").upsert(
+            results.map((r) => ({
+              appointment_id: row.id,
+              kind,
+              channel: r.channel,
+              status: r.status,
+              destination: r.destination,
+              error: r.error ?? null,
+              sent_at: new Date().toISOString(),
+              recipient_key: target.key,
+              recipient_label: target.label,
+              ...(target.isClient
+                ? { recipient_client_id: target.id }
+                : { recipient_id: target.id }),
+            })),
+            { onConflict: "appointment_id,recipient_key,kind,channel" },
+          );
+        }
+
+        for (const r of results) {
+          if (r.status === "sent") summary.sent += 1;
+          else if (r.status === "failed") summary.failed += 1;
+          else summary.skipped += 1;
+        }
+      }
     }
 
-    for (const r of [...counsellorResults, ...clientResults]) {
-      if (r.status === "sent") summary.sent += 1;
-      else if (r.status === "failed") summary.failed += 1;
-      else summary.skipped += 1;
-    }
+    await supabase
+      .from("message_schedules")
+      .update({ last_run_at: new Date().toISOString() })
+      .eq("id", schedule.id);
   }
 
   return NextResponse.json({ ok: true, ranAt: now.toISOString(), ...summary });
@@ -203,167 +231,46 @@ export const POST = GET;
 
 /* ------------------------------------------------------------- helpers */
 
+type TemplateRow = {
+  body: string; channel: string; content_sid: string | null;
+  variables: string[]; is_active: boolean; name: string;
+};
 type CounsellorRow = {
-  id: string;
-  full_name: string;
-  email: string | null;
-  phone: string | null;
-  timezone: string;
-  notify_email: boolean;
-  notify_sms: boolean;
-  notify_whatsapp: boolean;
+  id: string; full_name: string; email: string | null; phone: string | null;
+  timezone: string; notify_email: boolean; notify_sms: boolean; notify_whatsapp: boolean;
 };
-
 type ClientRow = {
-  id: string;
-  full_name: string;
-  email: string | null;
-  phone: string | null;
-  user_id: string | null;
+  id: string; full_name: string; email: string | null; phone: string | null; user_id: string | null;
+};
+type ChannelResult = {
+  channel: string; destination: string | null;
+  status: "sent" | "failed" | "skipped"; error?: string;
 };
 
-function asOne<T>(value: T | T[] | null): T | null {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
+function asOne<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
-/** Whole days between two YYYY-MM-DD keys. */
-function daysBetween(fromKey: string, toKey: string): number {
-  const [fy, fm, fd] = fromKey.split("-").map(Number);
-  const [ty, tm, td] = toKey.split("-").map(Number);
-  const from = Date.UTC(fy, fm - 1, fd);
-  const to = Date.UTC(ty, tm - 1, td);
-  return Math.round((to - from) / 86_400_000);
-}
-
-/** Channels already marked `sent`, keyed by recipient. */
+/** Channels already marked sent, so nothing goes out twice. */
 async function sentChannels(
   supabase: ReturnType<typeof createAdminClient>,
   appointmentId: string,
-  recipientKeys: string[],
-): Promise<Map<string, Set<string>>> {
-  const map = new Map<string, Set<string>>();
-
+  kind: string,
+  recipientKey: string,
+): Promise<Set<string>> {
   const { data } = await supabase
     .from("notification_deliveries")
-    .select("recipient_key, channel, status")
+    .select("channel, status")
     .eq("appointment_id", appointmentId)
-    .eq("kind", KIND)
-    .in("recipient_key", recipientKeys);
+    .eq("kind", kind)
+    .eq("recipient_key", recipientKey);
 
-  for (const row of data ?? []) {
-    if (row.status !== "sent") continue;
-    const set = map.get(row.recipient_key) ?? new Set<string>();
-    set.add(row.channel);
-    map.set(row.recipient_key, set);
-  }
-
-  return map;
-}
-
-async function deliver(
-  input: ReminderInput,
-  to: { email: string | null; sms: string | null; whatsapp: string | null },
-  alreadySent: Set<string>,
-): Promise<ChannelResult[]> {
-  const results: ChannelResult[] = [];
-
-  if (to.email && !alreadySent.has("email")) {
-    const res = await sendEmail({
-      to: to.email,
-      subject: reminderSubject(input),
-      html: reminderHtml(input),
-      text: reminderText(input),
-    });
-    results.push({
-      channel: "email",
-      destination: to.email,
-      status: res.ok ? "sent" : res.skipped ? "skipped" : "failed",
-      error: res.error,
-    });
-  }
-
-  if (to.whatsapp && !alreadySent.has("whatsapp")) {
-    const res = await sendWhatsApp(to.whatsapp, reminderSms(input));
-    results.push({
-      channel: "whatsapp",
-      destination: to.whatsapp,
-      status: res.ok ? "sent" : res.skipped ? "skipped" : "failed",
-      error: res.error,
-    });
-  }
-
-  if (to.sms && !alreadySent.has("sms")) {
-    const res = await sendSms(to.sms, reminderSms(input));
-    results.push({
-      channel: "sms",
-      destination: to.sms,
-      status: res.ok ? "sent" : res.skipped ? "skipped" : "failed",
-      error: res.error,
-    });
-  }
-
-  return results;
-}
-
-async function record(
-  supabase: ReturnType<typeof createAdminClient>,
-  appointmentId: string,
-  results: ChannelResult[],
-  recipient: {
-    recipient_key: string;
-    recipient_id?: string;
-    recipient_client_id?: string;
-    recipient_label: string;
-  },
-) {
-  if (results.length === 0) return;
-
-  // Upsert, so a channel that failed today can be retried tomorrow and
-  // simply overwrite its own row rather than colliding with it.
-  await supabase.from("notification_deliveries").upsert(
-    results.map((r) => ({
-      appointment_id: appointmentId,
-      kind: KIND,
-      channel: r.channel,
-      status: r.status,
-      destination: r.destination,
-      error: r.error ?? null,
-      sent_at: new Date().toISOString(),
-      ...recipient,
-    })),
-    { onConflict: "appointment_id,recipient_key,kind,channel" },
+  return new Set(
+    (data ?? []).filter((r) => r.status === "sent").map((r) => r.channel as string),
   );
 }
 
-async function notifyInApp(
-  supabase: ReturnType<typeof createAdminClient>,
-  userId: string,
-  recipientKey: string,
-  appointmentId: string,
-  input: ReminderInput,
-  alreadySent: Set<string>,
-) {
-  if (alreadySent.has("in_app")) return;
-
-  await supabase.from("notifications").insert({
-    user_id: userId,
-    appointment_id: appointmentId,
-    kind: KIND,
-    title: "Session in 3 days",
-    body: reminderSms(input),
-  });
-
-  await supabase.from("notification_deliveries").upsert(
-    {
-      appointment_id: appointmentId,
-      recipient_key: recipientKey,
-      recipient_id: userId,
-      kind: KIND,
-      channel: "in_app",
-      status: "sent",
-      recipient_label: input.recipientName,
-    },
-    { onConflict: "appointment_id,recipient_key,kind,channel" },
-  );
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
