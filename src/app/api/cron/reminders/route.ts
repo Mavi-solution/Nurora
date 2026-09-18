@@ -8,6 +8,7 @@ import { sendEmail } from "@/lib/notify/email";
 import { toE164 } from "@/lib/notify/phone";
 import { sendSms, sendWhatsApp } from "@/lib/notify/sms";
 import { stripWhatsAppFormatting } from "@/lib/notify/message-templates";
+import { serverEnv } from "@/lib/server-env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +28,42 @@ export const maxDuration = 60;
  * is retried tomorrow because only 'sent' blocks a resend.
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
+  /*
+   * Read at RUNTIME, not through a literal process.env.CRON_SECRET.
+   *
+   * This is the same trap that made the app insist WhatsApp was not
+   * configured while /api/health could see all four Twilio variables:
+   * a static process.env.X is substituted when the bundle is built, and
+   * Vercel withholds Sensitive variables from the build step. Here the
+   * consequence is worse than a missing feature — the secret would read
+   * as absent, the guard below would be skipped, and the endpoint would
+   * stay WIDE OPEN on a deployment whose owner had just set a secret to
+   * close it.
+   */
+  const secret = serverEnv("CRON_SECRET");
+
   if (secret) {
     const header = request.headers.get("authorization");
     if (header !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+  } else if (isProduction()) {
+    /*
+     * Fail closed in production. This endpoint sends real WhatsApp
+     * messages to real clients, so an unprotected one is not a
+     * degraded feature — it is a way for anyone who finds the URL to
+     * message the practice's client list. Locally it stays open, where
+     * the only thing it can reach is a test database.
+     */
+    return NextResponse.json(
+      {
+        error:
+          "CRON_SECRET is not set on this deployment, so the reminder sweep " +
+          "is disabled. Set it in the project's environment variables and " +
+          "redeploy — see DEPLOY.md.",
+      },
+      { status: 503 },
+    );
   }
 
   const supabase = createAdminClient();
@@ -227,6 +258,15 @@ export async function GET(request: NextRequest) {
 }
 
 /** Also allow POST so the job can be triggered by hand. */
+/** True on a real deployment, however it was built. */
+function isProduction(): boolean {
+  return (
+    serverEnv("VERCEL_ENV") === "production" ||
+    (Boolean(serverEnv("VERCEL")) && serverEnv("VERCEL_ENV") !== "development") ||
+    process.env.NODE_ENV === "production"
+  );
+}
+
 export const POST = GET;
 
 /* ------------------------------------------------------------- helpers */

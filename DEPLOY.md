@@ -99,7 +99,7 @@ every one with its purpose.
 | `NEXT_PUBLIC_SUPABASE_URL` | from step 1 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | from step 1 |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only |
-| `CRON_SECRET` | `openssl rand -hex 32`. Vercel sends it as `Authorization: Bearer …`; the reminder route rejects anything else |
+| `CRON_SECRET` | `openssl rand -hex 32`. Vercel sends it as `Authorization: Bearer …`; the reminder route rejects anything else, and **refuses to run at all in production while it is unset** — the sweep sends real WhatsApp messages, so an open endpoint is a way for anyone with the URL to message your client list |
 
 **Required before taking real bookings — these decide what clients pay**
 

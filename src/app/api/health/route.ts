@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { serverEnv } from "@/lib/server-env";
 import { misprefixedVars, serviceRoleKey } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +27,15 @@ export async function GET() {
       NEXT_PUBLIC_SUPABASE_URL: url ? `set (${safeHost(url)})` : "MISSING",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: anon ? `set (${anon.length} chars)` : "MISSING",
       SUPABASE_SERVICE_ROLE_KEY: service ? `set (${service.length} chars)` : "MISSING",
-      CRON_SECRET: process.env.CRON_SECRET ? "set" : "missing (reminders unprotected)",
-      TWILIO_WHATSAPP_FROM: process.env.TWILIO_WHATSAPP_FROM ? "set" : "unset (WhatsApp skipped)",
-      RESEND_API_KEY: process.env.RESEND_API_KEY ? "set" : "unset (email skipped)",
+      // Runtime reads. A static process.env.X here would report a
+      // Vercel Sensitive variable as missing, which is the single most
+      // confusing thing this endpoint could say — it exists to tell you
+      // what the RUNNING server can see.
+      CRON_SECRET: serverEnv("CRON_SECRET")
+        ? "set (reminder sweep protected)"
+        : "MISSING (reminder sweep disabled in production)",
+      TWILIO_WHATSAPP_FROM: serverEnv("TWILIO_WHATSAPP_FROM") ? "set" : "unset (WhatsApp skipped)",
+      RESEND_API_KEY: serverEnv("RESEND_API_KEY") ? "set" : "unset (email skipped)",
       advanceTiersConfigured: Boolean(
         process.env.BILLING_ADVANCE_AT_OR_BELOW || process.env.BILLING_ADVANCE_ABOVE,
       ),
@@ -49,6 +56,10 @@ export async function GET() {
           ["NEXT_PUBLIC_SUPABASE_URL", url],
           ["NEXT_PUBLIC_SUPABASE_ANON_KEY", anon],
           ["SUPABASE_SERVICE_ROLE_KEY", service],
+          // Included because setting it as a Sensitive variable is the
+          // normal thing to do, and "absent at build, present at
+          // runtime" is then the CORRECT result rather than a fault.
+          ["CRON_SECRET", process.env.CRON_SECRET?.trim()],
         ] as const
       ).map(([name, atBuild]) => {
         // Computed key: never substituted, so this is the live value.

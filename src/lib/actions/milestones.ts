@@ -1,5 +1,7 @@
 "use server";
 
+import { serverEnv } from "@/lib/server-env";
+
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { parseNubill } from "@/lib/business/milestones";
@@ -191,7 +193,9 @@ export async function sendClientMessageNow(appointmentId: string) {
   const client = asOne(appt?.client) as { id: string; full_name: string } | null;
   const tz = (asOne(appt?.counsellor) as { timezone: string } | null)?.timezone ?? "Asia/Kolkata";
 
-  const templateSid = process.env.TWILIO_WHATSAPP_TEMPLATE_BOOKED?.trim() || null;
+  // Runtime read: this may legitimately be a Vercel Secret, and a
+  // build-time substitution would silently drop back to free-form.
+  const templateSid = serverEnv("TWILIO_WHATSAPP_TEMPLATE_BOOKED") ?? null;
 
   const result = await sendWhatsApp(
     prepared.data.to,
