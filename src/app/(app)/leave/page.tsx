@@ -2,6 +2,7 @@ import { monthOffSummary } from "@/lib/actions/leave";
 import { isAdmin, requireStaff } from "@/lib/auth";
 import { getMonthWeeks } from "@/lib/business/weekoff";
 import { createClient } from "@/lib/supabase/server";
+import { dateKeyInTimeZone } from "@/lib/time";
 import type { CounsellorSummary } from "@/lib/types";
 import { LeaveBoard } from "./leave-board";
 
@@ -56,6 +57,7 @@ export default async function LeavePage({
       year={year}
       month={month}
       weeks={getMonthWeeks(year, month)}
+      todayKey={dateKeyInTimeZone(now, profile.timezone)}
       {...summary}
     />
   );

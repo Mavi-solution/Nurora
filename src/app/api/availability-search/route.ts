@@ -1,5 +1,5 @@
 import { CLINICIAN_ROLES } from "@/lib/auth";
-import { loadDaysOff } from "@/lib/business/days-off";
+import { loadDaysOffRange } from "@/lib/business/days-off";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -125,9 +125,23 @@ export async function GET(request: NextRequest) {
 
   const now = new Date();
 
+  /*
+   * Week-offs, leave, clinic holidays and closed weekdays, for every
+   * day in the lookahead window.
+   *
+   * This module imported loadDaysOff and never called it, which is why
+   * the booking desk kept offering counsellors who were on a week-off —
+   * and why the desk could then book one, since bookAppointment trusted
+   * the slot it was handed. Both halves are fixed: the search stops
+   * offering the slot, and the action refuses it even if an old page
+   * asks for one anyway.
+   */
+  const daysOffOn = await loadDaysOffRange(dateKey, windowEndKey);
+
   function slotsFor(counsellor: Counsellor, day: string) {
     const todayKey = dateKeyInTimeZone(now, counsellor.timezone);
     const [y, m, d] = day.split("-").map(Number);
+    const daysOff = daysOffOn(day);
 
     return generateSlots({
       dateKey: day,
@@ -139,6 +153,7 @@ export async function GET(request: NextRequest) {
         (e) => e.counsellor_id === counsellor.id && e.on_date === day,
       ),
       busy: allBusy.filter((b) => b.counsellor_id === counsellor.id),
+      dayOff: daysOff.clinicClosed || daysOff.off.has(counsellor.id),
       notBefore:
         day === todayKey
           ? now
@@ -179,8 +194,24 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  /*
+   * When the day is empty because somebody is away rather than merely
+   * busy, say so. "Nothing free on Friday", "Anisha is on a week-off"
+   * and "we are closed on Sundays" send the desk down three completely
+   * different paths on the phone.
+   *
+   * A named counsellor gets THEIR reason; a search across the whole
+   * roster can only speak for the clinic, since one person's week-off
+   * says nothing about everyone else's.
+   */
+  const chosen = daysOffOn(dateKey);
+  const closedReason = counsellorId
+    ? chosen.reasonFor(counsellorId)
+    : chosen.holiday;
+
   return NextResponse.json({
     slots,
+    closedReason,
     nextDays,
     counsellors: counsellors.map((c) => ({
       id: c.id,

@@ -8,6 +8,7 @@
  *   npm run test:desk
  */
 import { chromium } from "playwright";
+import { pickDate } from "./lib/pick-date.mjs";
 import { execSync } from "node:child_process";
 
 const APP = "http://localhost:3000";
@@ -110,7 +111,7 @@ try {
   // on the wall clock, so a run late in the working day finds an empty
   // grid and fails for reasons unrelated to the desk.
   const target = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-  await page.getByLabel("Date").fill(target);
+  await pickDate(page, target);
   await page.waitForTimeout(1200);
 
   const slotButtons = page.locator("button").filter({ hasText: /^\d{2}:\d{2}$/ });

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ValidatedField } from "@/components/validated-field";
-import { validators } from "@/lib/validation";
+import { PhoneField } from "@/components/phone-field";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { Alert, Button, Card, Field, fieldClass } from "@/components/ui";
 import { completeOnboarding } from "@/lib/actions/profile";
-import { COMMON_TIMEZONES } from "@/lib/time";
+import { COMMON_TIMEZONES, DEFAULT_TIMEZONE } from "@/lib/time";
 import type { Profile } from "@/lib/types";
 
 export function OnboardingForm({ profile }: { profile: Profile }) {
@@ -15,15 +15,22 @@ export function OnboardingForm({ profile }: { profile: Profile }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  // Pre-select the browser's timezone when we can detect it.
+  const [phone, setPhone] = useState(profile.phone ?? "");
+
+  /*
+   * Pre-select the browser's timezone when it is one we offer, and the
+   * practice's own otherwise. A detected zone we do not list — a VPN, a
+   * traveller's laptop — used to be prepended to the list and selected,
+   * quietly putting an Indian counsellor on America/Chicago.
+   */
   const detected =
     typeof Intl !== "undefined"
       ? Intl.DateTimeFormat().resolvedOptions().timeZone
       : profile.timezone;
 
-  const timezones = COMMON_TIMEZONES.includes(detected)
-    ? COMMON_TIMEZONES
-    : [detected, ...COMMON_TIMEZONES];
+  const initialTimezone = COMMON_TIMEZONES.includes(detected)
+    ? detected
+    : (profile.timezone || DEFAULT_TIMEZONE);
 
   function onSubmit(formData: FormData) {
     setError(null);
@@ -92,24 +99,18 @@ export function OnboardingForm({ profile }: { profile: Profile }) {
         )}
         {profile.is_admin && <input type="hidden" name="role" value="counsellor" />}
 
-        <Field label="Timezone" hint="Session times and reminders use this.">
-          <select name="timezone" defaultValue={detected} className={fieldClass}>
-            {timezones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <TimezoneSelect
+          name="timezone"
+          defaultValue={initialTimezone}
+          hint="Session times and reminders use this."
+        />
 
-        <ValidatedField
+        <PhoneField
           label="Phone"
-          hint="Used for SMS and WhatsApp reminders. Optional."
-          type="tel"
-          inputMode="tel"
           name="phone"
-          defaultValue={profile.phone ?? ""}
-          validate={validators.phone()}
+          hint="Used for SMS and WhatsApp reminders. Optional."
+          value={phone}
+          onChange={setPhone}
         />
 
         <Button type="submit" size="lg" className="w-full" disabled={pending}>

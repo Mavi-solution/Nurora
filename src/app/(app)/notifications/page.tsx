@@ -3,6 +3,7 @@ import { Card, EmptyState } from "@/components/ui";
 import { requireSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { Notification } from "@/lib/types";
+import { NotificationTools } from "./notification-tools";
 
 export const metadata = { title: "Notifications" };
 export const dynamic = "force-dynamic";
@@ -18,14 +19,18 @@ export default async function NotificationsPage() {
     .limit(100);
 
   const notifications = (data ?? []) as Notification[];
+  const unread = notifications.filter((n) => !n.read_at).length;
 
   return (
     <div className="max-w-2xl">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Notifications</h1>
-        <p className="text-[13px] text-muted mt-0.5">
-          Booking confirmations, session reminders and messages from the team.
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Notifications</h1>
+          <p className="text-[13px] text-muted mt-0.5">
+            Booking confirmations, session reminders and messages from the team.
+          </p>
+        </div>
+        <NotificationTools total={notifications.length} unread={unread} />
       </div>
 
       <Card>

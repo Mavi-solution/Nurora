@@ -1,6 +1,10 @@
-import { CLINICIAN_ROLES, canManagePractice, requireStaff } from "@/lib/auth";
+import { canManagePractice, requireStaff } from "@/lib/auth";
+import { getClinicSettings, getCounsellors } from "@/lib/data/reference";
 import { createClient } from "@/lib/supabase/server";
-import type { AvailabilityException, AvailabilityRule, CounsellorSummary } from "@/lib/types";
+import type { AvailabilityException, AvailabilityRule } from "@/lib/types";
+
+/** Open every day until an admin says otherwise. */
+const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 import { AvailabilityEditor } from "./availability-editor";
 
 export const metadata = { title: "Availability" };
@@ -15,14 +19,10 @@ export default async function AvailabilityPage({
   const params = await searchParams;
   const supabase = await createClient();
 
-  const { data: counsellorRows } = await supabase
-    .from("profiles")
-    .select("id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency")
-    .in("role", CLINICIAN_ROLES)
-    .eq("is_active", true)
-    .order("full_name");
-
-  const counsellors = (counsellorRows ?? []) as CounsellorSummary[];
+  const [counsellors, settings] = await Promise.all([
+    getCounsellors(),
+    getClinicSettings(),
+  ]);
 
   // Counsellors edit their own week; admins can pick anyone's.
   // Admins and the desk maintain everyone's hours; a counsellor edits
@@ -55,6 +55,9 @@ export default async function AvailabilityPage({
       exceptions={(exceptions ?? []) as AvailabilityException[]}
       timezone={
         counsellors.find((c) => c.id === selectedId)?.timezone ?? profile.timezone
+      }
+      openWeekdays={
+        settings?.open_weekdays?.length ? settings.open_weekdays : ALL_WEEKDAYS
       }
     />
   );

@@ -30,6 +30,12 @@ const settingsSchema = z.object({
   advanceAbove: rupees,
   fullPaymentModes: z.array(z.string()).max(5),
 
+  /** 0 = Sunday. At least one day, or the practice never opens. */
+  openWeekdays: z
+    .array(z.coerce.number().int().min(0).max(6))
+    .min(1, "The clinic has to open on at least one day.")
+    .max(7),
+
   includedMinutes: z.coerce.number().int().min(5).max(480),
   graceMinutes: z.coerce.number().int().min(0).max(240),
   extensionBlockMinutes: z.coerce.number().int().min(1).max(240),
@@ -81,6 +87,7 @@ export async function updateClinicSettings(input: unknown) {
       advance_at_or_below_cents: Math.round(v.advanceAtOrBelow * 100),
       advance_above_cents: Math.round(v.advanceAbove * 100),
       full_payment_modes: v.fullPaymentModes,
+      open_weekdays: [...new Set(v.openWeekdays)].sort((a, b) => a - b),
       included_minutes: v.includedMinutes,
       grace_minutes: v.graceMinutes,
       extension_block_minutes: v.extensionBlockMinutes,
@@ -107,6 +114,10 @@ export async function updateClinicSettings(input: unknown) {
   revalidatePath("/clinic-settings");
   revalidatePath("/schedule");
   revalidatePath("/book");
+  // Opening days change what the weekly editor will accept, and which
+  // days the calendars paint as shut.
+  revalidatePath("/availability");
+  revalidatePath("/leave");
   return { ok: true as const };
 }
 

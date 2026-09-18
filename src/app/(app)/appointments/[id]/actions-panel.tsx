@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { DictateButton, useDictation } from "@/components/dictation";
 import { SessionTimer } from "@/components/session-timer";
@@ -16,6 +16,7 @@ import {
   startSession,
 } from "@/lib/actions/appointments";
 import type { AppointmentStatus, TimeEntry } from "@/lib/types";
+import { RescheduleDialog } from "./reschedule-dialog";
 
 export function AppointmentActions({
   appointmentId,
@@ -26,6 +27,11 @@ export function AppointmentActions({
   isClinical,
   sessionNote,
   startCheck,
+  counsellorId,
+  durationMinutes,
+  startsAt,
+  timezone,
+  rescheduledToId,
 }: {
   appointmentId: string;
   status: AppointmentStatus;
@@ -36,6 +42,12 @@ export function AppointmentActions({
   sessionNote: string;
   /** Why the session cannot start yet, from business/session-start.ts. */
   startCheck: { ok: true } | { ok: false; reason: string };
+  counsellorId: string;
+  durationMinutes: number;
+  startsAt: string;
+  timezone: string;
+  /** Set once this session has been superseded by its replacement. */
+  rescheduledToId: string | null;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +55,25 @@ export function AppointmentActions({
   const [pending, startTransition] = useTransition();
 
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+
+  /*
+   * BRIC links straight here with ?reschedule=1, so the desk lands on
+   * the dialog rather than on the page and then having to find the
+   * button. Opened once, on arrival — reopening it every render would
+   * make the dialog impossible to close.
+   */
+  const searchParams = useSearchParams();
+  const wantsReschedule = searchParams.get("reschedule") === "1";
+  const openedFromLink = useRef(false);
+
+  useEffect(() => {
+    if (!wantsReschedule || openedFromLink.current) return;
+    openedFromLink.current = true;
+    if (status !== "completed" && status !== "cancelled" && !rescheduledToId) {
+      setRescheduleOpen(true);
+    }
+  }, [wantsReschedule, status, rescheduledToId]);
   const [reason, setReason] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [minutes, setMinutes] = useState("60");
@@ -154,6 +185,34 @@ export function AppointmentActions({
             </Button>
           )}
 
+          {/* Moving a session is a different act from cancelling it —
+              the client keeps their booking and any advance follows it —
+              so it gets its own button rather than living inside the
+              cancel dialog. */}
+          {isStaff && !finished && !rescheduledToId && (
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={pending}
+              onClick={() => setRescheduleOpen(true)}
+            >
+              Reschedule
+            </Button>
+          )}
+
+          {rescheduledToId && (
+            <p className="text-[13px] text-muted text-center py-1">
+              This session was moved.{" "}
+              <a
+                href={`/appointments/${rescheduledToId}`}
+                className="text-brand-700 dark:text-brand-300 hover:underline"
+              >
+                Open the new one
+              </a>
+              .
+            </p>
+          )}
+
           {isStaff && !finished && (
             <Button
               variant="secondary"
@@ -250,6 +309,20 @@ export function AppointmentActions({
           </div>
         </Card>
       )}
+
+      <RescheduleDialog
+        open={rescheduleOpen}
+        onClose={() => setRescheduleOpen(false)}
+        appointmentId={appointmentId}
+        counsellorId={counsellorId}
+        durationMinutes={durationMinutes}
+        currentStartsAt={startsAt}
+        timezone={timezone}
+        onDone={(message) => {
+          setNotice(message);
+          router.refresh();
+        }}
+      />
 
       <Dialog
         open={cancelOpen}

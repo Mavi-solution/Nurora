@@ -168,17 +168,45 @@ export async function getSpecialisms(): Promise<Specialism[]> {
 
 /* -------------------------------------------------------- counsellors */
 
+/*
+ * The roster carries each counsellor's specialisms as plain names.
+ *
+ * PostgREST returns the join as a nested array of rows, so it is
+ * flattened to strings here — once, where the list is built — rather
+ * than at each of the five call sites. The shape a caller receives is
+ * the same whether it came from the cache or a live read, which is the
+ * whole point of routing both through one mapper.
+ */
+const COUNSELLOR_SELECT = `${COUNSELLOR_COLUMNS}, counsellor_specialisms (specialisms (name))`;
+
+type CounsellorJoinRow = Omit<CounsellorSummary, "specialisms"> & {
+  counsellor_specialisms?: { specialisms: { name: string } | null }[] | null;
+};
+
+function withSpecialisms(rows: unknown): CounsellorSummary[] {
+  return ((rows ?? []) as CounsellorJoinRow[]).map((row) => {
+    const { counsellor_specialisms, ...rest } = row;
+    return {
+      ...rest,
+      specialisms: (counsellor_specialisms ?? [])
+        .map((j) => j.specialisms?.name)
+        .filter((n): n is string => Boolean(n))
+        .sort((a, b) => a.localeCompare(b)),
+    };
+  });
+}
+
 const cachedCounsellors = unstable_cache(
   async (): Promise<CounsellorSummary[]> => {
     const admin = createAdminClientOrNull();
     if (!admin) return [];
     const { data } = await admin
       .from("profiles")
-      .select(COUNSELLOR_COLUMNS)
+      .select(COUNSELLOR_SELECT)
       .in("role", CLINICIAN_ROLES)
       .eq("is_active", true)
       .order("full_name");
-    return (data ?? []) as CounsellorSummary[];
+    return withSpecialisms(data);
   },
   ["ref-counsellors"],
   { tags: [REF_TAG.counsellors], revalidate: MAX_AGE },
@@ -189,11 +217,11 @@ export async function getCounsellors(): Promise<CounsellorSummary[]> {
     const supabase = await createClient();
     const { data } = await supabase
       .from("profiles")
-      .select(COUNSELLOR_COLUMNS)
+      .select(COUNSELLOR_SELECT)
       .in("role", CLINICIAN_ROLES)
       .eq("is_active", true)
       .order("full_name");
-    return (data ?? []) as CounsellorSummary[];
+    return withSpecialisms(data);
   }
   return cachedCounsellors();
 }

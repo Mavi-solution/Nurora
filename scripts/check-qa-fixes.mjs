@@ -4,6 +4,7 @@
  *   supabase db reset && node scripts/check-qa-fixes.mjs
  */
 import { chromium } from "playwright";
+import { pickDate } from "./lib/pick-date.mjs";
 import { execFileSync } from "node:child_process";
 const APP = "http://localhost:3000";
 let failures = 0;
@@ -38,7 +39,7 @@ try {
   await d.getByLabel("Service / Category").selectOption({ index: 1 });
   await d.getByLabel("Counsellor").selectOption({ index: 1 });
   const target = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-  await d.getByLabel("Date").fill(target);
+  await pickDate(d, target);
   await page.waitForTimeout(2000);
   const slots = await d.locator("div.grid.grid-cols-4 button").allTextContents();
   check("slot times are 12-hour (am/pm)",

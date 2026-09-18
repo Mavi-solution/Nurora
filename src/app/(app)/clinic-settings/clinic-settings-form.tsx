@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import { updateClinicSettings } from "@/lib/actions/settings-admin";
+import { WEEKDAYS } from "@/lib/time";
 import type { ClinicSettings } from "@/lib/types";
 
 const MODES = [
@@ -34,6 +35,9 @@ export function ClinicSettingsForm({ settings }: { settings: ClinicSettings }) {
     advanceAtOrBelow: rupees(settings.advance_at_or_below_cents),
     advanceAbove: rupees(settings.advance_above_cents),
     fullPaymentModes: settings.full_payment_modes,
+    openWeekdays: settings.open_weekdays?.length
+      ? settings.open_weekdays
+      : [0, 1, 2, 3, 4, 5, 6],
     includedMinutes: String(settings.included_minutes),
     graceMinutes: String(settings.grace_minutes),
     extensionBlockMinutes: String(settings.extension_block_minutes),
@@ -91,10 +95,59 @@ export function ClinicSettingsForm({ settings }: { settings: ClinicSettings }) {
 
       <Card className="mb-4">
         <CardHeader title="Practice" />
-        <div className="px-5 py-4">
+        <div className="px-5 py-4 space-y-4">
           <Field label="Practice name" hint="Used in every client message.">
             <input value={f.practiceName} onChange={(e) => set("practiceName", e.target.value)} className={fieldClass} />
           </Field>
+
+          {/*
+            Which days the practice opens at all.
+
+            This is NOT the same as "nobody has set hours on a Sunday",
+            though the two used to look identical to the booking desk.
+            Saying it explicitly is what lets the availability editor
+            stop offering to add hours on a closed day, and lets every
+            calendar paint it shut rather than merely empty.
+          */}
+          <div>
+            <span className="block text-[13px] font-medium mb-1.5">Open days</span>
+            <p className="text-[12px] text-faint mb-2">
+              Days the clinic opens. No slot is ever offered on a day that is
+              off, and working hours cannot be set on one.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEKDAYS.map((name, weekday) => {
+                const on = f.openWeekdays.includes(weekday);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      set(
+                        "openWeekdays",
+                        on
+                          ? f.openWeekdays.filter((d) => d !== weekday)
+                          : [...f.openWeekdays, weekday].sort((a, b) => a - b),
+                      )
+                    }
+                    className={`h-9 px-3.5 rounded-full border text-[13px] transition-colors ${
+                      on
+                        ? "bg-brand-700 border-brand-700 text-white font-medium"
+                        : "border-hairline text-muted hover:bg-card-muted"
+                    }`}
+                  >
+                    {name.slice(0, 3)}
+                  </button>
+                );
+              })}
+            </div>
+            {f.openWeekdays.length === 0 && (
+              <p className="text-[12px] text-red-600 dark:text-red-400 mt-2">
+                The clinic has to open on at least one day.
+              </p>
+            )}
+          </div>
         </div>
       </Card>
 

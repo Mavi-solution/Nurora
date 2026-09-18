@@ -6,6 +6,7 @@
  *   supabase db reset && node scripts/check-booking-dialog.mjs
  */
 import { chromium } from "playwright";
+import { pickDate } from "./lib/pick-date.mjs";
 import { execFileSync } from "node:child_process";
 
 const APP = "http://localhost:3000";
@@ -106,7 +107,7 @@ try {
   await d.getByLabel("Age").fill("29");
   await serviceSel.selectOption({ label: "Child Therapy — ₹2,000" });
   await d.getByLabel("Counsellor").selectOption({ index: 1 });
-  await d.getByLabel("Date").fill(future);
+  await pickDate(d, future);
   await d.getByRole("button", { name: "Online", exact: true }).click();
   await d.getByLabel("WhatsApp number").fill("98400 11223");
   await d.getByRole("button", { name: /Counselling \(CO\)/ }).click();
@@ -143,7 +144,7 @@ try {
   await d.getByLabel("Client name").fill("Ravi Booked");
   await serviceSel.selectOption({ label: "Couple Therapy — ₹3,000" });
   await d.getByLabel("Counsellor").selectOption({ index: 1 });
-  await d.getByLabel("Date").fill(future);
+  await pickDate(d, future);
   await d.getByRole("button", { name: "Offline - Walk-in" }).click();
   await d.getByLabel("WhatsApp number").fill("9000000123");
   await page.waitForTimeout(1500);

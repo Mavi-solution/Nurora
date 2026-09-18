@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { ValidatedField } from "@/components/validated-field";
 import { validators } from "@/lib/validation";
-import { GENDERS, withCurrent } from "@/lib/options";
+import { DateField } from "@/components/date-field";
+import { useMonthAvailability } from "@/components/use-month-availability";
+import { PhoneField } from "@/components/phone-field";
+import { describeCounsellor } from "@/components/counsellor-select";
+import { GENDERS, LANGUAGES, withCurrent } from "@/lib/options";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import {
   Alert,
@@ -87,6 +91,8 @@ export function BookingDesk({
   const [date, setDate] = useState(todayKey);
   const [slots, setSlots] = useState<MatchedSlot[]>([]);
   const [nextDays, setNextDays] = useState<{ date: string; count: number }[]>([]);
+  /** Set when the day is shut rather than merely full. */
+  const [closedReason, setClosedReason] = useState<string | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slot, setSlot] = useState<MatchedSlot | null>(null);
 
@@ -192,11 +198,13 @@ export function BookingDesk({
         if (cancelled) return;
         setSlots(data.slots ?? []);
         setNextDays(data.nextDays ?? []);
+        setClosedReason(data.closedReason ?? null);
       })
       .catch(() => {
         if (!cancelled) {
           setSlots([]);
           setNextDays([]);
+          setClosedReason(null);
         }
       })
       .finally(() => {
@@ -207,6 +215,19 @@ export function BookingDesk({
       cancelled = true;
     };
   }, [step, date, specialismId, language, counsellorId]);
+
+  /*
+   * The same filters that drive the slot list drive the calendar's
+   * colours, so the month a desk is looking at answers the question
+   * they are actually asking — "when can THIS caller be seen?" — rather
+   * than "when is anyone free at all?".
+   */
+  const monthAvailability = useMonthAvailability({
+    enabled: step === 2,
+    counsellorId: counsellorId || undefined,
+    specialismId: specialismId || undefined,
+    language: language || undefined,
+  });
 
   /* ------------------------------------------------------------ booking */
 
@@ -237,8 +258,10 @@ export function BookingDesk({
     });
   }
 
+  // Grouped by id, not by name: two counsellors can share a first name,
+  // and the id is what lets each group show ITS OWN specialisms.
   const byCounsellor = slots.reduce<Record<string, MatchedSlot[]>>((acc, s) => {
-    (acc[s.counsellorName] ??= []).push(s);
+    (acc[s.counsellorId] ??= []).push(s);
     return acc;
   }, {});
 
@@ -335,16 +358,12 @@ export function BookingDesk({
                       placeholder="Ravi Kumar"
                     />
                   </Field>
-                  <ValidatedField
-                      label="Phone"
-                      hint="Reminders go here."
-                      type="tel"
-                      inputMode="tel"
-                      placeholder="+91 98765 43210"
-                      value={draft.phone}
-                      onChange={(v) => setDraft({ ...draft, phone: v })}
-                      validate={validators.phone()}
-                    />
+                  <PhoneField
+                    label="Phone"
+                    hint="Reminders go here."
+                    value={draft.phone}
+                    onChange={(v) => setDraft({ ...draft, phone: v })}
+                  />
                   <ValidatedField
                       label="Email"
                       type="email"
@@ -376,7 +395,10 @@ export function BookingDesk({
                       ))}
                     </select>
                   </Field>
-                  <Field label="Preferred language">
+                  <Field
+                    label="Preferred language"
+                    hint="What they would rather be seen in, even if nobody speaks it yet."
+                  >
                     <select
                       value={draft.preferredLanguage}
                       onChange={(e) =>
@@ -385,7 +407,7 @@ export function BookingDesk({
                       className={fieldClass}
                     >
                       <option value="">No preference</option>
-                      {languages.map((l) => (
+                      {withCurrent(LANGUAGES, draft.preferredLanguage).map((l) => (
                         <option key={l} value={l}>
                           {l}
                         </option>
@@ -467,21 +489,21 @@ export function BookingDesk({
                   <option value="">Anyone available</option>
                   {counsellors.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.full_name}
+                      {describeCounsellor(c)}
                     </option>
                   ))}
                 </select>
               </Field>
 
-              <Field label="Date">
-                <input
-                  type="date"
-                  value={date}
-                  min={todayKey}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={fieldClass}
-                />
-              </Field>
+              <DateField
+                label="Date"
+                value={date}
+                min={todayKey}
+                onChange={setDate}
+                dayStatus={monthAvailability.status}
+                loadingStatus={monthAvailability.loading}
+                onMonthChange={monthAvailability.onMonthChange}
+              />
             </div>
 
             <div className="px-5 pb-3 flex flex-wrap gap-2">
@@ -514,10 +536,14 @@ export function BookingDesk({
               ) : slots.length === 0 ? (
                 <div className="py-4">
                   <p className="text-[14px] font-medium">
-                    Nothing free on {date} for that combination.
+                    {closedReason
+                      ? `We are shut on ${date} — ${closedReason}.`
+                      : `Nothing free on ${date} for that combination.`}
                   </p>
                   <p className="text-[13px] text-muted mt-1">
-                    Widen the filters, or offer the caller one of these:
+                    {closedReason
+                      ? "Offer the caller one of these instead:"
+                      : "Widen the filters, or offer the caller one of these:"}
                   </p>
                   {nextDays.length > 0 ? (
                     <div className="flex flex-wrap gap-2 mt-3">
@@ -541,14 +567,29 @@ export function BookingDesk({
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {Object.entries(byCounsellor).map(([name, list]) => (
-                    <div key={name}>
-                      <div className="flex items-center gap-2 mb-2">
+                  {Object.entries(byCounsellor).map(([id, list]) => {
+                    const who = counsellors.find((c) => c.id === id);
+                    const name = list[0].counsellorName;
+                    const detail = [
+                      ...(who?.specialisms ?? []),
+                      ...(who?.languages ?? []),
+                    ];
+                    return (
+                    <div key={id}>
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         <Avatar name={name} size={26} />
                         <span className="text-[14px] font-medium">{name}</span>
                         <span className="text-[12px] text-muted">
                           {list.length} free
                         </span>
+                        {/* What they actually do, so the desk can say
+                            something useful to the caller rather than
+                            reading out a name. */}
+                        {detail.length > 0 && (
+                          <span className="text-[12px] text-faint truncate">
+                            · {detail.join(" · ")}
+                          </span>
+                        )}
                       </div>
                       <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-6 gap-2">
                         {list.map((s) => {
@@ -571,7 +612,8 @@ export function BookingDesk({
                         })}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

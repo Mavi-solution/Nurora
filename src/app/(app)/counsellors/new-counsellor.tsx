@@ -5,15 +5,13 @@ import { ValidatedField } from "@/components/validated-field";
 import { validators } from "@/lib/validation";
 import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
+import { PhoneField } from "@/components/phone-field";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
 import { createCounsellor } from "@/lib/actions/counsellors";
-import { COMMON_TIMEZONES } from "@/lib/time";
+import { LANGUAGES, PRACTICE_CURRENCY, PRACTICE_CURRENCY_LABEL } from "@/lib/options";
+import { DEFAULT_TIMEZONE } from "@/lib/time";
 import type { Specialism } from "@/lib/types";
-
-const LANGUAGE_OPTIONS = [
-  "English", "Tamil", "Hindi", "Telugu", "Malayalam", "Kannada",
-  "Marathi", "Bengali", "Gujarati", "Punjabi", "Urdu",
-];
 
 export function NewCounsellorButton({
   specialisms,
@@ -32,17 +30,12 @@ export function NewCounsellorButton({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [headline, setHeadline] = useState("");
-  const [timezone, setTimezone] = useState(defaultTimezone);
+  const [timezone, setTimezone] = useState(defaultTimezone || DEFAULT_TIMEZONE);
   const [sessionFee, setSessionFee] = useState("2000");
   const [duration, setDuration] = useState(60);
-  const [currency, setCurrency] = useState("INR");
   const [languages, setLanguages] = useState<string[]>(["English"]);
   const [specialismIds, setSpecialismIds] = useState<string[]>([]);
   const [password, setPassword] = useState(() => suggestPassword());
-
-  const timezones = COMMON_TIMEZONES.includes(defaultTimezone)
-    ? COMMON_TIMEZONES
-    : [defaultTimezone, ...COMMON_TIMEZONES];
 
   function toggle(list: string[], value: string, set: (v: string[]) => void) {
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -55,6 +48,7 @@ export function NewCounsellorButton({
     setHeadline("");
     setSessionFee("2000");
     setDuration(60);
+    setTimezone(defaultTimezone || DEFAULT_TIMEZONE);
     setLanguages(["English"]);
     setSpecialismIds([]);
     setPassword(suggestPassword());
@@ -66,6 +60,13 @@ export function NewCounsellorButton({
 
     if (specialismIds.length === 0) {
       return setError("Pick at least one specialism — the desk books on it.");
+    }
+    // The booking desk filters on language, so a counsellor with none
+    // recorded is invisible to every language-filtered search.
+    if (languages.length === 0) {
+      return setError(
+        "Pick at least one language — callers are matched to counsellors on it.",
+      );
     }
 
     startTransition(async () => {
@@ -79,7 +80,7 @@ export function NewCounsellorButton({
         specialismIds,
         sessionFee: Number(sessionFee || 0),
         durationMinutes: duration,
-        currency,
+        currency: PRACTICE_CURRENCY,
         temporaryPassword: password,
       });
 
@@ -180,27 +181,8 @@ export function NewCounsellorButton({
               onChange={setEmail}
               validate={validators.email({ required: true })}
             />
-            <ValidatedField
-              label="Phone"
-              type="tel"
-              inputMode="tel"
-              value={phone}
-              onChange={setPhone}
-              validate={validators.phone()}
-            />
-            <Field label="Timezone">
-              <select
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className={fieldClass}
-              >
-                {timezones.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <PhoneField label="Phone" value={phone} onChange={setPhone} />
+            <TimezoneSelect value={timezone} onChange={setTimezone} />
           </div>
 
           <Field label="Headline" hint="Shown next to their name.">
@@ -238,12 +220,20 @@ export function NewCounsellorButton({
             </div>
           </div>
 
+          {/* Its own labelled section. The chips were previously headed
+              only "Can hold sessions in", which QA read straight past —
+              hence "add language section while creating councillor
+              account" for a control that was already on the form. */}
           <div>
-            <span className="block text-[13px] font-medium mb-1.5">
-              Can hold sessions in
+            <span className="block text-[13px] font-medium mb-1.5 is-required">
+              Languages
             </span>
-            <div className="flex flex-wrap gap-1.5">
-              {LANGUAGE_OPTIONS.map((l) => {
+            <p className="text-[12px] text-faint mb-2">
+              Sessions they can hold. The booking desk filters on this, so
+              leaving it empty hides them from a language-matched search.
+            </p>
+            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
+              {LANGUAGES.map((l) => {
                 const on = languages.includes(l);
                 return (
                   <button
@@ -265,13 +255,13 @@ export function NewCounsellorButton({
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <Field label="Currency">
-              <input
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                maxLength={3}
-                className={`${fieldClass} uppercase`}
-              />
+            <Field label="Currency" hint="The practice bills in rupees.">
+              <p
+                className={`${fieldClass} bg-card-muted text-muted flex items-center`}
+                aria-readonly="true"
+              >
+                {PRACTICE_CURRENCY_LABEL}
+              </p>
             </Field>
             <Field label="Session fee">
               <input

@@ -18,6 +18,57 @@ const clientSchema = z.object({
   preferredSpecialismId: z.string().uuid().optional().nullable(),
 });
 
+/**
+ * An email address identifies exactly one person here.
+ *
+ * QA reported this twice — "each username must be unique" and "clients
+ * must not use an email address already associated with an existing
+ * account" — and they are the same rule seen from two ends. The address
+ * is the login: two client records sharing one is not a duplicate row,
+ * it is two people who would end up in the same account, receiving each
+ * other's session reminders.
+ *
+ * Both tables are checked. A staff profile owning the address matters
+ * as much as another client owning it, because signing up against it
+ * later would collide in auth.users where neither table can see it.
+ *
+ * Comparison is case-insensitive: "Ravi@x.com" and "ravi@x.com" are one
+ * mailbox everywhere that matters.
+ */
+async function emailTaken(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  email: string,
+  exceptClientId?: string,
+): Promise<string | null> {
+  const address = email.trim();
+  if (!address) return null;
+
+  let clientQuery = supabase
+    .from("clients")
+    .select("id, full_name")
+    .ilike("email", address)
+    .limit(1);
+
+  if (exceptClientId) clientQuery = clientQuery.neq("id", exceptClientId);
+
+  const [{ data: clients }, { data: staff }] = await Promise.all([
+    clientQuery,
+    supabase.from("profiles").select("id, full_name").ilike("email", address).limit(1),
+  ]);
+
+  const clash = (clients ?? [])[0];
+  if (clash) {
+    return `${address} is already on ${clash.full_name as string}'s record. Open that client instead of creating a second one.`;
+  }
+
+  const staffClash = (staff ?? [])[0];
+  if (staffClash) {
+    return `${address} already belongs to ${staffClash.full_name as string}'s staff account, so it cannot also be a client login.`;
+  }
+
+  return null;
+}
+
 export async function createClientRecord(input: unknown) {
   const parsed = clientSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
@@ -25,6 +76,11 @@ export async function createClientRecord(input: unknown) {
   const profile = await requireStaffProfile();
   const v = parsed.data;
   const supabase = await createClient();
+
+  if (v.email) {
+    const taken = await emailTaken(supabase, v.email);
+    if (taken) return fail(taken);
+  }
 
   const { data, error } = await supabase
     .from("clients")
@@ -58,6 +114,11 @@ export async function updateClientRecord(clientId: string, input: unknown) {
   await requireStaffProfile();
   const v = parsed.data;
   const supabase = await createClient();
+
+  if (v.email) {
+    const taken = await emailTaken(supabase, v.email, clientId);
+    if (taken) return fail(taken);
+  }
 
   const patch: Record<string, unknown> = {};
   if (v.fullName !== undefined) patch.full_name = v.fullName;
@@ -102,18 +163,72 @@ export async function setClientAge(clientId: string, age: number | null) {
   return { ok: true as const };
 }
 
+/**
+ * Archive a client, and say whether it actually happened.
+ *
+ * The old version reported success whether or not a row changed — RLS
+ * refusing the update looks exactly like a no-op to PostgREST — which
+ * is why "archive buttons not working properly" came back with no error
+ * on screen: the button ran, claimed success, and the client was still
+ * there after the refresh. Asking for the updated row back turns a
+ * silent refusal into a message.
+ *
+ * A client with sessions still ahead of them is refused outright.
+ * Archiving takes them out of every booking list, so doing it with a
+ * session booked leaves an appointment nobody can find the client for.
+ */
 export async function archiveClient(clientId: string) {
   await requireStaffProfile();
   const supabase = await createClient();
 
-  const { error } = await supabase
+  const { count } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", clientId)
+    .in("status", ["scheduled", "in_progress"])
+    .gte("starts_at", new Date().toISOString());
+
+  if (count && count > 0) {
+    return fail(
+      `They still have ${count} session${count === 1 ? "" : "s"} booked. ` +
+        "Cancel or complete those first, then archive them.",
+    );
+  }
+
+  const { data, error } = await supabase
     .from("clients")
     .update({ is_active: false })
-    .eq("id", clientId);
+    .eq("id", clientId)
+    .select("id");
 
   if (error) return fail(describeDbError(error.message, error.code));
+  if (!data || data.length === 0) {
+    return fail("That client could not be archived — you may not have permission.");
+  }
 
   revalidatePath("/clients");
+  revalidatePath(`/clients/${clientId}`);
+  return { ok: true as const };
+}
+
+/** Undo an archive. Without this, archiving is a one-way door. */
+export async function restoreClient(clientId: string) {
+  await requireStaffProfile();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("clients")
+    .update({ is_active: true })
+    .eq("id", clientId)
+    .select("id");
+
+  if (error) return fail(describeDbError(error.message, error.code));
+  if (!data || data.length === 0) {
+    return fail("That client could not be restored — you may not have permission.");
+  }
+
+  revalidatePath("/clients");
+  revalidatePath(`/clients/${clientId}`);
   return { ok: true as const };
 }
 

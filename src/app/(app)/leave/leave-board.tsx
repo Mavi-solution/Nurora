@@ -58,6 +58,7 @@ export function LeaveBoard({
   weekOffs,
   leaves,
   holidays,
+  todayKey,
 }: {
   profile: Profile;
   isAdmin: boolean;
@@ -71,6 +72,8 @@ export function LeaveBoard({
   weekOffs: WeekOff[];
   leaves: Leave[];
   holidays: Holiday[];
+  /** Today in the viewer's timezone — the boundary for "past". */
+  todayKey: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +93,15 @@ export function LeaveBoard({
   const holidayByDate = new Map(holidays.map((h) => [h.on_date, h]));
 
   const remaining = Math.max(0, quota - weekOffs.length);
+
+  /*
+   * An admin can still tidy up a past month on someone's behalf; a
+   * counsellor cannot retroactively book themselves a day off that has
+   * already gone. That is the whole of "don't display the past days in
+   * week off in calendar" — they stay visible, because the record of
+   * what was taken matters, but they stop being clickable.
+   */
+  const isPast = (key: string) => !isAdmin && key < todayKey;
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) {
     setError(null);
@@ -198,17 +210,37 @@ export function LeaveBoard({
         )}
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3 mb-5">
-        <Stat label="Allowance" value={String(quota)} sub={`${weeks.length} weeks this month`} />
-        <Stat label="Week-offs taken" value={String(weekOffs.length)} sub={`${remaining} left`} />
-        <Stat label="Leave logged" value={String(leaves.length)} sub={`${holidays.length} clinic holiday${holidays.length === 1 ? "" : "s"}`} />
+      {/* Allocated, used and left as three separate numbers. They were
+          two, with "left" tucked under "taken" as a subtitle, which is
+          exactly the one a counsellor is looking for. */}
+      <div className="grid sm:grid-cols-4 gap-3 mb-5">
+        <Stat
+          label="Allocated"
+          value={String(quota)}
+          sub={`${weeks.length} week-off weeks this month`}
+        />
+        <Stat
+          label="Taken"
+          value={String(weekOffs.length)}
+          sub={weekOffs.length === 0 ? "None yet" : "This month"}
+        />
+        <Stat
+          label="Remaining"
+          value={String(remaining)}
+          sub={remaining === 0 ? "All used" : `of ${quota}`}
+        />
+        <Stat
+          label="Leave logged"
+          value={String(leaves.length)}
+          sub={`${holidays.length} clinic holiday${holidays.length === 1 ? "" : "s"}`}
+        />
       </div>
 
       {/* ------------------------------------------------------ calendar */}
       <Card className="overflow-hidden">
         <CardHeader
           title={viewingSelf ? "Your month" : (staff.find((s) => s.id === staffId)?.full_name ?? "Calendar")}
-          description="Each band is one week-off week. Tap a day to mark it."
+          description={`Each band is one week-off week. Tap a day to mark it. ${remaining} of ${quota} left.`}
         />
 
         <div className="p-4 overflow-x-auto">
@@ -232,6 +264,8 @@ export function LeaveBoard({
                 year={year}
                 month={month}
                 dateKey={dateKey}
+                todayKey={todayKey}
+                isPast={isPast}
                 weekOffByDate={weekOffByDate}
                 leaveByDate={leaveByDate}
                 holidayByDate={holidayByDate}
@@ -419,6 +453,8 @@ function WeekRow({
   year,
   month,
   dateKey,
+  todayKey,
+  isPast,
   weekOffByDate,
   leaveByDate,
   holidayByDate,
@@ -429,6 +465,8 @@ function WeekRow({
   year: number;
   month: number;
   dateKey: (d: number) => string;
+  todayKey: string;
+  isPast: (dateKey: string) => boolean;
   weekOffByDate: Map<string, WeekOff>;
   leaveByDate: Map<string, Leave>;
   holidayByDate: Map<string, Holiday>;
@@ -473,23 +511,37 @@ function WeekRow({
           const weekOff = weekOffByDate.get(key);
           const leave = leaveByDate.get(key);
           const holiday = holidayByDate.get(key);
+          const past = isPast(key);
+          const today = key === todayKey;
 
           return (
             <button
               key={day}
               type="button"
+              disabled={past}
+              title={past ? "That day has already gone." : undefined}
               onClick={() => onPick(key)}
               className={`h-16 rounded-lg border p-1.5 text-left transition-colors ${
-                weekOff
+                past
+                  ? "border-hairline bg-card-muted/40 opacity-55 cursor-not-allowed"
+                  : weekOff
                   ? "border-brand-300 bg-brand-50 dark:border-brand-400/30 dark:bg-brand-400/10"
                   : leave
                     ? "border-blush-300 bg-blush-50 dark:border-blush-500/30 dark:bg-blush-500/10"
                     : holiday
                       ? "border-brand-300 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
-                      : "border-hairline hover:bg-card-muted"
+                      : today
+                        ? "border-brand-400 hover:bg-card-muted"
+                        : "border-hairline hover:bg-card-muted"
               }`}
             >
-              <span className="block text-[12px] font-medium tabular-nums">{day}</span>
+              <span
+                className={`block text-[12px] font-medium tabular-nums ${
+                  today ? "text-brand-700 dark:text-brand-300" : ""
+                }`}
+              >
+                {day}
+              </span>
               {weekOff && <span className="block text-[10px] text-brand-700 dark:text-brand-300 mt-0.5">Week-off</span>}
               {!weekOff && leave && <span className="block text-[10px] text-blush-700 dark:text-blush-300 mt-0.5">{LEAVE_LABEL[leave.kind]}</span>}
               {!weekOff && !leave && holiday && <span className="block text-[10px] text-brand-700 dark:text-brand-300 mt-0.5 truncate">{holiday.name}</span>}

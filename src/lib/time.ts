@@ -315,3 +315,102 @@ export function generateSlots(opts: {
 
   return slots.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
+
+/**
+ * The practice's own timezone. Every "add Indian timezone" report came
+ * from the same place: Asia/Kolkata WAS in the list, but a list of raw
+ * IANA identifiers does not read as one — nobody scanning a dropdown
+ * for "India" finds it under K. The labels below fix that; this
+ * constant makes sure it is also what a new account starts on.
+ */
+export const DEFAULT_TIMEZONE = "Asia/Kolkata";
+
+/** Plain-English names for the zones this practice actually uses. */
+const TZ_COUNTRY: Record<string, string> = {
+  "Asia/Kolkata": "India",
+  "Asia/Colombo": "Sri Lanka",
+  "Asia/Karachi": "Pakistan",
+  "Asia/Dhaka": "Bangladesh",
+  "Asia/Kathmandu": "Nepal",
+  "Asia/Dubai": "United Arab Emirates",
+  "Asia/Qatar": "Qatar",
+  "Asia/Riyadh": "Saudi Arabia",
+  "Asia/Kuwait": "Kuwait",
+  "Asia/Muscat": "Oman",
+  "Asia/Bahrain": "Bahrain",
+  "Asia/Singapore": "Singapore",
+  "Asia/Kuala_Lumpur": "Malaysia",
+  "Asia/Bangkok": "Thailand",
+  "Asia/Jakarta": "Indonesia",
+  "Asia/Manila": "Philippines",
+  "Asia/Hong_Kong": "Hong Kong",
+  "Asia/Shanghai": "China",
+  "Asia/Tokyo": "Japan",
+  "Asia/Seoul": "South Korea",
+  "Europe/London": "United Kingdom",
+  "Europe/Dublin": "Ireland",
+  "Europe/Lisbon": "Portugal",
+  "Europe/Paris": "France",
+  "Europe/Berlin": "Germany",
+  "Europe/Madrid": "Spain",
+  "Europe/Rome": "Italy",
+  "Europe/Amsterdam": "Netherlands",
+  "Europe/Zurich": "Switzerland",
+  "Europe/Stockholm": "Sweden",
+  "Europe/Moscow": "Russia",
+  "Africa/Cairo": "Egypt",
+  "Africa/Nairobi": "Kenya",
+  "Africa/Lagos": "Nigeria",
+  "Africa/Johannesburg": "South Africa",
+  "America/New_York": "United States — Eastern",
+  "America/Toronto": "Canada — Eastern",
+  "America/Chicago": "United States — Central",
+  "America/Denver": "United States — Mountain",
+  "America/Phoenix": "United States — Arizona",
+  "America/Los_Angeles": "United States — Pacific",
+  "America/Vancouver": "Canada — Pacific",
+  "America/Mexico_City": "Mexico",
+  "America/Sao_Paulo": "Brazil",
+  "America/Argentina/Buenos_Aires": "Argentina",
+  "Australia/Perth": "Australia — Perth",
+  "Australia/Adelaide": "Australia — Adelaide",
+  "Australia/Brisbane": "Australia — Brisbane",
+  "Australia/Sydney": "Australia — Sydney",
+  "Australia/Melbourne": "Australia — Melbourne",
+  "Pacific/Auckland": "New Zealand",
+  UTC: "Coordinated Universal Time",
+};
+
+/** "+05:30" for a zone right now, DST included. */
+export function utcOffsetLabel(tz: string, at: Date = new Date()): string {
+  let minutes: number;
+  try {
+    minutes = Math.round(tzOffsetMs(at, tz) / 60_000);
+  } catch {
+    return "";
+  }
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  return `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
+/**
+ * How a timezone should read in a dropdown: "India (UTC+05:30) —
+ * Asia/Kolkata". The country comes first because that is what people
+ * search for; the IANA id stays on the end because it is what is
+ * actually stored, and hiding it makes support conversations harder.
+ */
+export function timezoneLabel(tz: string, at: Date = new Date()): string {
+  const offset = utcOffsetLabel(tz, at);
+  const country = TZ_COUNTRY[tz];
+  const suffix = offset ? ` (UTC${offset})` : "";
+  return country ? `${country}${suffix} — ${tz}` : `${tz}${suffix}`;
+}
+
+/** The common list with `current` folded in, so a stored zone survives. */
+export function timezoneOptions(current?: string | null): string[] {
+  if (current && !COMMON_TIMEZONES.includes(current)) {
+    return [current, ...COMMON_TIMEZONES];
+  }
+  return COMMON_TIMEZONES;
+}

@@ -55,14 +55,14 @@ try {
     page.getByText(label, { exact: true })
       .locator("xpath=following-sibling::div[1]")
       .textContent();
-  const augAllowance = await statText("Allowance");
-  check("August 2026 shows an allowance of 4", (augAllowance ?? "").trim() === "4", augAllowance ?? "");
+  const augAllowance = await statText("Allocated");
+  check("August 2026 shows an allocation of 4", (augAllowance ?? "").trim() === "4", augAllowance ?? "");
   check("August renders 4 week bands", (await page.getByTitle(/^Week \d+:/).count()) === 4,
     `${await page.getByTitle(/^Week \d+:/).count()} bands`);
 
   await page.goto(`${APP}/leave?month=2026-09`, { waitUntil: "networkidle" });
-  const sepAllowance = await statText("Allowance");
-  check("September 2026 shows an allowance of 5", (sepAllowance ?? "").trim() === "5", sepAllowance ?? "");
+  const sepAllowance = await statText("Allocated");
+  check("September 2026 shows an allocation of 5", (sepAllowance ?? "").trim() === "5", sepAllowance ?? "");
   check("September renders 5 week bands", (await page.getByTitle(/^Week \d+:/).count()) === 5,
     `${await page.getByTitle(/^Week \d+:/).count()} bands`);
 
@@ -85,7 +85,7 @@ try {
   check("a fifth is refused once the allowance is spent",
     fifth === "blocked" || /allows 4|Only one per week/i.test(fifth), fifth);
 
-  const takenStat = await statText("Week-offs taken");
+  const takenStat = await statText("Taken");
   check("the counter reads 4 taken", (takenStat ?? "").trim() === "4", takenStat ?? "");
 
   /* --- leave and holidays ------------------------------------------ */

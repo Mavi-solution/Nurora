@@ -246,6 +246,18 @@ export default async function AppointmentPage({
             startCheck={startCheck}
             isClinical={clinical}
             sessionNote={sessionNote?.body ?? ""}
+            counsellorId={appt.counsellor_id}
+            durationMinutes={Math.max(
+              10,
+              Math.round(
+                (new Date(appt.ends_at).getTime() -
+                  new Date(appt.starts_at).getTime()) /
+                  60_000,
+              ),
+            )}
+            startsAt={appt.starts_at}
+            timezone={profile.timezone}
+            rescheduledToId={appt.rescheduled_to_id}
           />
         </div>
       </div>

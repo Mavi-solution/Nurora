@@ -200,17 +200,85 @@ const passwordSchema = z
   .min(8, "Use at least 8 characters.")
   .max(72);
 
-/** Change your own password — counsellors arrive with a temporary one. */
-export async function changePassword(newPassword: string) {
+/**
+ * Turn Supabase's auth errors into something a counsellor can act on.
+ *
+ * "Can't change new password" was reported with no error text on
+ * screen, which is the tell: the update was failing and the raw message
+ * coming back ("AuthApiError: New password should be different from the
+ * old password.", "same_password", "reauthentication_needed") either
+ * means nothing to the reader or was swallowed entirely. Each of these
+ * has a different fix, so each gets its own sentence.
+ */
+function describeAuthError(message: string, code?: string): string {
+  const m = `${code ?? ""} ${message}`.toLowerCase();
+
+  if (m.includes("same_password") || m.includes("should be different")) {
+    return "That is already your password. Choose a different one.";
+  }
+  if (m.includes("weak") || m.includes("password should be at least")) {
+    return "That password is too weak. Use at least 8 characters, and mix in a number or symbol.";
+  }
+  if (m.includes("reauthentication") || m.includes("nonce")) {
+    return "For security, sign out and sign back in, then change the password straight away.";
+  }
+  if (m.includes("session") || m.includes("jwt") || m.includes("token")) {
+    return "Your sign-in has expired. Sign in again and retry.";
+  }
+  if (m.includes("rate") || m.includes("too many")) {
+    return "Too many attempts. Wait a minute and try again.";
+  }
+  return message;
+}
+
+/**
+ * Change your own password — counsellors arrive with a temporary one.
+ *
+ * The current password is asked for and verified first. Two reasons,
+ * and the second is the one that fixes the bug: it stops a walk-up
+ * takeover of an unattended session, AND it turns the most common
+ * failure — someone retyping the temporary password they were given —
+ * into "that is already your password" instead of an unexplained
+ * refusal.
+ */
+export async function changePassword(
+  newPassword: string,
+  currentPassword?: string,
+) {
   const parsed = passwordSchema.safeParse(newPassword);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
 
   const profile = await currentProfile();
   if (!profile) return fail("Not signed in.");
+  if (!profile.email) {
+    return fail(
+      "Your account has no email address, so the password cannot be verified. Ask an admin to reset it for you.",
+    );
+  }
 
   const supabase = await createClient();
+
+  if (!currentPassword) return fail("Enter your current password.");
+
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: profile.email,
+    password: currentPassword,
+  });
+
+  if (signInError) {
+    const m = signInError.message.toLowerCase();
+    if (m.includes("invalid login") || m.includes("credentials")) {
+      return fail("That current password is not right.");
+    }
+    return fail(describeAuthError(signInError.message, signInError.code));
+  }
+
+  if (currentPassword === parsed.data) {
+    return fail("That is already your password. Choose a different one.");
+  }
+
   const { error } = await supabase.auth.updateUser({ password: parsed.data });
-  if (error) return fail(error.message);
+  if (error) return fail(describeAuthError(error.message, error.code));
 
   return { ok: true as const };
 }

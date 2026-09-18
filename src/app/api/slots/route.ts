@@ -88,9 +88,17 @@ export async function GET(request: NextRequest) {
     rules: (rules ?? []) as AvailabilityRule[],
     exceptions: (exceptions ?? []) as AvailabilityException[],
     busy: busy ?? [],
-    dayOff: daysOff.off.has(counsellorId) || daysOff.holiday !== null,
+    dayOff: daysOff.clinicClosed || daysOff.off.has(counsellorId),
     notBefore: dateKey === todayKey ? new Date() : dayStart,
   });
 
-  return NextResponse.json({ slots, timezone: tz });
+  // An empty list has several quite different causes, and "no open
+  // slots that day" was reported as a bug precisely because it hid
+  // them. A week-off, a closed clinic and a genuinely full day each
+  // need a different next move from the desk.
+  return NextResponse.json({
+    slots,
+    timezone: tz,
+    closedReason: daysOff.reasonFor(counsellorId),
+  });
 }

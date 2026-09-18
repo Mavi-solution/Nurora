@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import {
+  clearNotifications,
+  dismissNotification,
+} from "@/lib/actions/notifications";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification } from "@/lib/types";
 
@@ -10,6 +14,7 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
   const [items, setItems] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(initialCount);
   const [loading, setLoading] = useState(false);
+  const [pending, startTransition] = useTransition();
   const panelRef = useRef<HTMLDivElement>(null);
 
   const supabase = createClient();
@@ -80,6 +85,35 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
     }
   }
 
+  /*
+   * Removed from the list straight away, then from the database.
+   * Deleting a notification is not a risky operation and the row is
+   * already gone from the user's point of view; waiting on a round trip
+   * to redraw makes clearing twenty of them feel broken.
+   */
+  function clearAll() {
+    const had = items.length;
+    setItems([]);
+    setUnread(0);
+    startTransition(async () => {
+      const result = await clearNotifications();
+      if (!result.ok) {
+        // Put them back rather than pretending they are gone.
+        await load();
+        setUnread(had);
+      }
+    });
+  }
+
+  function dismiss(id: string) {
+    const previous = items;
+    setItems((list) => list.filter((n) => n.id !== id));
+    startTransition(async () => {
+      const result = await dismissNotification(id);
+      if (!result.ok) setItems(previous);
+    });
+  }
+
   return (
     <div className="relative" ref={panelRef}>
       <button
@@ -110,8 +144,18 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
 
       {open && (
         <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-hairline bg-card shadow-card overflow-hidden animate-in-up">
-          <div className="px-4 py-3 border-b border-hairline flex items-center justify-between">
-            <span className="text-[13px] font-semibold">Notifications</span>
+          <div className="px-4 py-3 border-b border-hairline flex items-center gap-3">
+            <span className="text-[13px] font-semibold flex-1">Notifications</span>
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={clearAll}
+                disabled={pending}
+                className="text-[12px] text-muted hover:text-red-600 transition-colors disabled:opacity-50"
+              >
+                Clear all
+              </button>
+            )}
             <Link
               href="/notifications"
               className="text-[12px] text-brand-700 dark:text-brand-300 hover:underline"
@@ -132,7 +176,7 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
             )}
 
             {items.map((n) => (
-              <NotificationRow key={n.id} n={n} />
+              <NotificationRow key={n.id} n={n} onDismiss={dismiss} />
             ))}
           </div>
         </div>
@@ -141,13 +185,15 @@ export function NotificationBell({ initialCount }: { initialCount: number }) {
   );
 }
 
-function NotificationRow({ n }: { n: Notification }) {
+function NotificationRow({
+  n,
+  onDismiss,
+}: {
+  n: Notification;
+  onDismiss: (id: string) => void;
+}) {
   const body = (
-    <div
-      className={`px-4 py-3 border-b border-hairline last:border-0 hover:bg-card-muted transition-colors ${
-        n.read_at ? "" : "bg-brand-50/50 dark:bg-brand-400/5"
-      }`}
-    >
+    <div className="pr-8">
       <p className="text-[13px] font-medium">{n.title}</p>
       <p className="text-[12px] text-muted mt-0.5 leading-relaxed">{n.body}</p>
       <p className="text-[11px] text-faint mt-1">
@@ -159,11 +205,32 @@ function NotificationRow({ n }: { n: Notification }) {
   // link wins over appointment_id: a direct message points at its thread.
   const href = n.link ?? (n.appointment_id ? `/appointments/${n.appointment_id}` : null);
 
-  return href ? (
-    <Link href={href} className="block">
-      {body}
-    </Link>
-  ) : (
-    body
+  return (
+    <div
+      className={`relative group px-4 py-3 border-b border-hairline last:border-0 hover:bg-card-muted transition-colors ${
+        n.read_at ? "" : "bg-brand-50/50 dark:bg-brand-400/5"
+      }`}
+    >
+      {href ? (
+        <Link href={href} className="block">
+          {body}
+        </Link>
+      ) : (
+        body
+      )}
+
+      {/* Dismiss sits OUTSIDE the link. Nested inside, the click would
+          navigate as well as delete. */}
+      <button
+        type="button"
+        onClick={() => onDismiss(n.id)}
+        aria-label={`Dismiss "${n.title}"`}
+        className="absolute top-2.5 right-2.5 size-6 grid place-items-center rounded-full text-faint opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
   );
 }

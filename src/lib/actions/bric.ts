@@ -60,6 +60,8 @@ export async function loadBric(
         status: "Interest",
         detail: "Not paid — holds no slot",
         href: "/interests",
+        movedToId: null,
+        canReschedule: false,
       })),
     };
   }
@@ -131,6 +133,14 @@ export async function loadBric(
             : "Moved"
           : ((r.cancel_reason as string) ?? ""),
       href: `/appointments/${r.id}`,
+      movedToId: (r.rescheduled_to_id as string | null) ?? null,
+      // Completed sessions and anything already moved are out: the
+      // first cannot be undone, the second has a successor that is the
+      // thing to move now.
+      canReschedule:
+        tab === "booked" &&
+        r.status !== "completed" &&
+        r.reschedule_status !== "moved",
     })),
   };
 }

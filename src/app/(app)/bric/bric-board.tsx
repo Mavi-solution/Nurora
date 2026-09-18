@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Card, CardHeader, EmptyState, Pill, fieldClass } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, Pill } from "@/components/ui";
+import { DateField } from "@/components/date-field";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import type { BricRow, BricTab } from "@/lib/types";
 
@@ -74,7 +75,9 @@ export function BricBoard({
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      {/* A named landmark: rows now carry their own "Reschedule" link,
+          so "the Reschedule link" is ambiguous without it. */}
+      <nav aria-label="BRIC tabs" className="flex flex-wrap gap-2 mb-4">
         {TABS.map((t) => (
           <Link
             key={t.value}
@@ -88,27 +91,15 @@ export function BricBoard({
             {t.label}
           </Link>
         ))}
-      </div>
+      </nav>
 
       <div className="flex flex-wrap items-end gap-3 mb-5">
-        <label className="text-[12px] text-muted">
-          From
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => go({ from: e.target.value })}
-            className={`${fieldClass} mt-1`}
-          />
-        </label>
-        <label className="text-[12px] text-muted">
-          To
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => go({ to: e.target.value })}
-            className={`${fieldClass} mt-1`}
-          />
-        </label>
+        <div className="w-52">
+          <DateField label="From" value={from} max={to} onChange={(v) => go({ from: v })} />
+        </div>
+        <div className="w-52">
+          <DateField label="To" value={to} min={from} onChange={(v) => go({ to: v })} />
+        </div>
         <div className="flex-1" />
         <Button variant="secondary" onClick={exportCsv} disabled={rows.length === 0}>
           Export CSV
@@ -134,6 +125,7 @@ export function BricBoard({
                   <th className="px-3 py-2.5 font-medium">Service</th>
                   <th className="px-3 py-2.5 font-medium">When</th>
                   <th className="px-5 py-2.5 font-medium">Detail</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -157,6 +149,32 @@ export function BricBoard({
                     <td className="px-5 py-3">
                       <Pill>{r.status}</Pill>
                       {r.detail && <span className="ml-2 text-muted">{r.detail}</span>}
+                    </td>
+                    {/*
+                      The route into rescheduling. The Reschedule tab
+                      could only ever be empty before this, because
+                      nothing anywhere in the app moved a session — so
+                      the tab looked broken when it was the way in that
+                      was missing.
+                    */}
+                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                      {r.canReschedule ? (
+                        <Link
+                          href={`${r.href}?reschedule=1`}
+                          className="text-[12px] text-brand-700 dark:text-brand-300 hover:underline"
+                        >
+                          Reschedule
+                        </Link>
+                      ) : r.movedToId ? (
+                        <Link
+                          href={`/appointments/${r.movedToId}`}
+                          className="text-[12px] text-brand-700 dark:text-brand-300 hover:underline"
+                        >
+                          Open new session
+                        </Link>
+                      ) : (
+                        <span className="text-[12px] text-faint">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

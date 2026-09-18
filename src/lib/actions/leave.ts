@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getMonthWeeks, weekOffQuotaForMonth } from "@/lib/business/weekoff";
 import { createClient } from "@/lib/supabase/server";
+import { dateKeyInTimeZone } from "@/lib/time";
 import type { Holiday, Leave, LeaveKind, WeekOff } from "@/lib/types";
 import {
   describeDbError,
@@ -52,6 +53,22 @@ export async function addWeekOff(input: {
 
   if (staffId !== profile.id && !profileIsAdmin(profile)) {
     return fail("Only an admin can set someone else's week-off.");
+  }
+
+  /*
+   * A day that has gone cannot be taken off. The calendar already stops
+   * offering it, but the rule belongs here too: the month's allowance is
+   * finite, and letting someone spend it retroactively on a day they
+   * actually worked makes the tally meaningless.
+   *
+   * Admins keep the ability, because correcting last month's record on
+   * someone's behalf is a real thing a practice manager has to do.
+   */
+  const todayKey = dateKeyInTimeZone(new Date(), profile.timezone);
+  if (onDate < todayKey && !profileIsAdmin(profile)) {
+    return fail(
+      `${onDate} has already gone. Week-offs can only be booked for today or later — ask an admin to log it if it needs correcting.`,
+    );
   }
 
   const supabase = await createClient();

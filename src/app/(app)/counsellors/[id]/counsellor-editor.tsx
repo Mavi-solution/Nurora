@@ -6,6 +6,9 @@ import { validators } from "@/lib/validation";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
+import { PhoneField } from "@/components/phone-field";
+import { TimezoneSelect } from "@/components/timezone-select";
+import { LANGUAGES, PRACTICE_CURRENCY, PRACTICE_CURRENCY_LABEL } from "@/lib/options";
 import {
   Alert, Avatar, Button, Card, CardHeader, Field, Pill, Stat, fieldClass,
 } from "@/components/ui";
@@ -73,10 +76,10 @@ export function CounsellorEditor({
   const [headline, setHeadline] = useState(counsellor.headline ?? "");
   const [bio, setBio] = useState(counsellor.bio ?? "");
   const [timezone, setTimezone] = useState(counsellor.timezone);
-  const [languages, setLanguages] = useState(counsellor.languages.join(", "));
+  const [languages, setLanguages] = useState<string[]>(counsellor.languages ?? []);
   const [sessionFee, setSessionFee] = useState(String(counsellor.default_session_fee_cents / 100));
   const [duration, setDuration] = useState(String(counsellor.default_duration_minutes));
-  const [currency, setCurrency] = useState(counsellor.currency);
+
   const [skills, setSkills] = useState<string[]>(selectedSpecialismIds);
 
   // Role and the admin flag are optimistic: they are controlled by
@@ -131,8 +134,9 @@ export function CounsellorEditor({
     run(
       () =>
         updateCounsellor(counsellor.id, {
-          fullName, phone, headline, bio, timezone, currency,
-          languages: languages.split(",").map((l) => l.trim()).filter(Boolean),
+          fullName, phone, headline, bio, timezone,
+          currency: PRACTICE_CURRENCY,
+          languages,
           sessionFee: Number(sessionFee),
           durationMinutes: Number(duration),
           specialismIds: skills,
@@ -179,17 +183,10 @@ export function CounsellorEditor({
             <input value={fullName} onChange={(e) => setFullName(e.target.value)} className={fieldClass} />
           </Field>
           <div className="grid sm:grid-cols-2 gap-3">
-            <ValidatedField
-              label="Phone"
-              type="tel"
-              inputMode="tel"
-              value={phone}
-              onChange={setPhone}
-              validate={validators.phone()}
-            />
-            <Field label="Timezone">
-              <input value={timezone} onChange={(e) => setTimezone(e.target.value)} className={fieldClass} />
-            </Field>
+            <PhoneField label="Phone" value={phone} onChange={setPhone} />
+            {/* Was a free-text box, which happily accepted "IST" and
+                any other string the database would then reject. */}
+            <TimezoneSelect value={timezone} onChange={setTimezone} />
           </div>
           <Field label="Headline" hint="One line, shown under their name.">
             <input value={headline} onChange={(e) => setHeadline(e.target.value)} className={fieldClass} />
@@ -197,9 +194,39 @@ export function CounsellorEditor({
           <Field label="Bio">
             <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} className={`${fieldClass} resize-y`} />
           </Field>
-          <Field label="Languages" hint="Comma separated. Used to match callers at the booking desk.">
-            <input value={languages} onChange={(e) => setLanguages(e.target.value)} className={fieldClass} placeholder="English, Tamil" />
-          </Field>
+          {/* Chips rather than comma-separated text: a stray comma or a
+              misspelling used to create a language nobody could ever
+              filter on, because the booking desk matches exact strings. */}
+          <div>
+            <span className="block text-[13px] font-medium mb-1.5">Languages</span>
+            <p className="text-[12px] text-faint mb-2">
+              Sessions they can hold. Used to match callers at the booking desk.
+            </p>
+            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
+              {LANGUAGES.map((l) => {
+                const on = languages.includes(l);
+                return (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() =>
+                      setLanguages((prev) =>
+                        prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l],
+                      )
+                    }
+                    aria-pressed={on}
+                    className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
+                      on
+                        ? "border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-400/15 dark:text-brand-100"
+                        : "border-hairline text-muted hover:bg-card-muted"
+                    }`}
+                  >
+                    {l}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="grid sm:grid-cols-3 gap-3">
             <Field label="Session fee">
@@ -208,8 +235,10 @@ export function CounsellorEditor({
             <Field label="Minutes">
               <input type="number" min={5} max={480} step={5} value={duration} onChange={(e) => setDuration(e.target.value)} className={fieldClass} />
             </Field>
-            <Field label="Currency">
-              <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} className={fieldClass} />
+            <Field label="Currency" hint="The practice bills in rupees.">
+              <p className={`${fieldClass} bg-card-muted text-muted flex items-center`} aria-readonly="true">
+                {PRACTICE_CURRENCY_LABEL}
+              </p>
             </Field>
           </div>
 
@@ -277,6 +306,7 @@ export function CounsellorEditor({
             <Field label="Role">
               <select
                 value={role}
+                aria-label="Role"
                 disabled={pending || isSelf}
                 onChange={(e) => {
                   const next = e.target.value as UserRole;

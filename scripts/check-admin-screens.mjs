@@ -38,8 +38,11 @@ try {
 
   step("BRIC has four tabs and separates moved from cancelled");
   await page.goto(`${APP}/bric`, { waitUntil: "networkidle" });
+  // Scoped to the tab bar: each Booked row now carries its own
+  // "Reschedule" link, which is the way INTO the tab.
+  const tabs = page.getByRole("navigation", { name: "BRIC tabs" });
   for (const t of ["Booked", "Reschedule", "Interest", "Cancelled"]) {
-    check(`tab ${t}`, await page.getByRole("link", { name: t, exact: true }).isVisible().catch(() => false));
+    check(`tab ${t}`, await tabs.getByRole("link", { name: t, exact: true }).isVisible().catch(() => false));
   }
   check("admin sees a Phone column",
     await page.getByRole("columnheader", { name: "Phone" }).isVisible().catch(() => false));

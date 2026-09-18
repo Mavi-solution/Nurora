@@ -43,8 +43,16 @@ try {
 
   step("Editing the profile persists");
   await page.getByLabel("Headline").fill("Senior counsellor, trauma");
-  await page.getByLabel("Phone").fill("+919840011999");
-  await page.getByLabel(/Languages/).fill("English, Tamil, Hindi");
+  // The national part only — the dialling code is its own control now.
+  await page.getByLabel("Phone", { exact: true }).fill("9840011999");
+  // Languages are chips rather than comma-separated text: a typo used
+  // to create a language nothing could ever filter on.
+  const languageChip = (name) =>
+    page.getByRole("button", { name, exact: true, pressed: undefined });
+  for (const l of ["English", "Tamil", "Hindi"]) {
+    const chip = languageChip(l);
+    if ((await chip.getAttribute("aria-pressed")) !== "true") await chip.click();
+  }
   await page.getByLabel("Session fee").fill("2500");
   await page.getByLabel("Minutes").fill("45");
   await page.getByRole("button", { name: "Anxiety" }).click();
@@ -56,7 +64,11 @@ try {
   const [h, ph, langs, fee, mins] = row.split("|");
   check("headline saved", h === "Senior counsellor, trauma");
   check("phone saved", ph === "+919840011999");
-  check("languages saved", langs === "English,Tamil,Hindi", langs);
+  check(
+    "languages saved",
+    ["English", "Tamil", "Hindi"].every((l) => langs.split(",").includes(l)),
+    langs,
+  );
   check("fee saved as paise", fee === "250000", fee);
   check("duration saved", mins === "45");
   check("specialism added",
@@ -100,7 +112,10 @@ try {
   await signIn(page, "anisha@nurora.demo");
   const me = sql("select id from profiles where email='anisha@nurora.demo'");
   await page.goto(`${APP}/counsellors/${me}`, { waitUntil: "networkidle" });
-  check("own role locked", await page.getByRole("combobox").first().isDisabled());
+  // Target the role select by name. The Profile card now carries a
+  // timezone dropdown ahead of it, so "the first combobox" is no
+  // longer the one under Access.
+  check("own role locked", await page.getByLabel("Role", { exact: true }).isDisabled());
   check("own admin checkbox locked", await page.getByRole("checkbox", { name: /Admin rights/ }).isDisabled());
 
   step("Reception can edit profiles but not access");

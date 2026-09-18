@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ValidatedField } from "@/components/validated-field";
-import { validators } from "@/lib/validation";
+import { PhoneField } from "@/components/phone-field";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { PRACTICE_CURRENCY_LABEL } from "@/lib/options";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
 import { updateSettings } from "@/lib/actions/profile";
-import { COMMON_TIMEZONES } from "@/lib/time";
 import type { Profile } from "@/lib/types";
 
 export function SettingsForm({ profile }: { profile: Profile }) {
@@ -14,11 +13,15 @@ export function SettingsForm({ profile }: { profile: Profile }) {
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const timezones = COMMON_TIMEZONES.includes(profile.timezone)
-    ? COMMON_TIMEZONES
-    : [profile.timezone, ...COMMON_TIMEZONES];
-
   const staff = profile.role !== "client";
+
+  /*
+   * The phone lives in state rather than as an uncontrolled input
+   * because the dialling code and the number are two controls posting
+   * one value. A hidden field carries the joined E.164 string into the
+   * form action, so the server sees exactly what it saw before.
+   */
+  const [phone, setPhone] = useState(profile.phone ?? "");
 
   function onSubmit(formData: FormData) {
     setError(null);
@@ -63,25 +66,18 @@ export function SettingsForm({ profile }: { profile: Profile }) {
             </>
           )}
 
-          <Field label="Timezone" hint="All session times and reminders use this.">
-            <select name="timezone" defaultValue={profile.timezone} className={fieldClass}>
-              {timezones.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <TimezoneSelect
+            name="timezone"
+            defaultValue={profile.timezone}
+            hint="All session times and reminders use this."
+          />
 
-          <ValidatedField
+          <PhoneField
             label="Phone"
-            hint="Used for SMS and WhatsApp reminders."
-            type="tel"
-            inputMode="tel"
             name="phone"
-            defaultValue={profile.phone ?? ""}
-            placeholder="+91 98765 43210"
-            validate={validators.phone()}
+            hint="Used for SMS and WhatsApp reminders."
+            value={phone}
+            onChange={setPhone}
           />
         </div>
       </Card>

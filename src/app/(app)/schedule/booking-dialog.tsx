@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ValidatedField } from "@/components/validated-field";
-import { validators } from "@/lib/validation";
+import { CounsellorSelect } from "@/components/counsellor-select";
+import { DateField } from "@/components/date-field";
+import { useMonthAvailability } from "@/components/use-month-availability";
+import { PhoneField } from "@/components/phone-field";
 import { Dialog } from "@/components/dialog";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
 import { saveBooking } from "@/lib/actions/interests";
@@ -99,6 +101,8 @@ export function BookingDialog({
   const [status, setStatus] = useState<(typeof STATUSES)[number]["value"]>("scheduled");
 
   const [slots, setSlots] = useState<Slot[]>([]);
+  /** Why the day has nothing, when the reason is not "it is full". */
+  const [closedReason, setClosedReason] = useState<string | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -165,10 +169,15 @@ export function BookingDialog({
     )
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) setSlots(data.slots ?? []);
+        if (cancelled) return;
+        setSlots(data.slots ?? []);
+        setClosedReason(data.closedReason ?? null);
       })
       .catch(() => {
-        if (!cancelled) setSlots([]);
+        if (!cancelled) {
+          setSlots([]);
+          setClosedReason(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingSlots(false);
@@ -178,6 +187,17 @@ export function BookingDialog({
       cancelled = true;
     };
   }, [open, isInterest, counsellorId, date, service]);
+
+  /*
+   * Colour the calendar for the counsellor and service actually chosen.
+   * An Interest holds no slot, so it is not fetched at all — painting
+   * days green for a booking that will never take one is noise.
+   */
+  const monthAvailability = useMonthAvailability({
+    enabled: open && !isInterest && Boolean(counsellorId),
+    counsellorId: counsellorId || undefined,
+    durationMinutes: service?.duration_minutes,
+  });
 
   function toggleTag(id: string) {
     setTagIds((prev) =>
@@ -408,32 +428,27 @@ export function BookingDialog({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Date" required>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => {
-                setDate(e.target.value);
-                setStartsAt("");
-              }}
-              className={fieldClass}
-            />
-          </Field>
-          <Field label="Counsellor" required>
-            <select
-              value={counsellorId}
-              onChange={(e) => {
-                setCounsellorId(e.target.value);
-                setStartsAt("");
-              }}
-              className={fieldClass}
-            >
-              <option value="">Select counsellor</option>
-              {counsellors.map((c) => (
-                <option key={c.id} value={c.id}>{c.full_name}</option>
-              ))}
-            </select>
-          </Field>
+          <DateField
+            label="Date"
+            required
+            value={date}
+            onChange={(next) => {
+              setDate(next);
+              setStartsAt("");
+            }}
+            dayStatus={monthAvailability.status}
+            loadingStatus={monthAvailability.loading}
+            onMonthChange={monthAvailability.onMonthChange}
+          />
+          <CounsellorSelect
+            counsellors={counsellors}
+            value={counsellorId}
+            required
+            onChange={(id) => {
+              setCounsellorId(id);
+              setStartsAt("");
+            }}
+          />
         </div>
 
         {/* ---------------------------------------------------- the slot */}
@@ -450,8 +465,9 @@ export function BookingDialog({
               <p className="text-[13px] text-muted py-2">Checking availability…</p>
             ) : slots.length === 0 ? (
               <p className="text-[13px] text-muted py-2">
-                No open slots that day. Try another date — or save this as an
-                Interest, which holds nothing.
+                {closedReason
+                  ? `Not bookable on ${date} — ${closedReason}. Pick another day, or save this as an Interest, which holds nothing.`
+                  : "Fully booked that day. Try another date — or save this as an Interest, which holds nothing."}
               </p>
             ) : (
               <div className="grid grid-cols-4 gap-2 max-h-36 overflow-y-auto pr-1">
@@ -501,16 +517,12 @@ export function BookingDialog({
           </div>
         </fieldset>
 
-        <ValidatedField
-                      label="WhatsApp number"
-                      hint="Confirmations and reminders go here."
-                      type="tel"
-                      inputMode="tel"
-                      placeholder="e.g. 98400 11223"
-                      value={whatsapp}
-                      onChange={setWhatsapp}
-                      validate={validators.phone({ label: "WhatsApp number" })}
-                    />
+        <PhoneField
+          label="WhatsApp number"
+          hint="Confirmations and reminders go here."
+          value={whatsapp}
+          onChange={setWhatsapp}
+        />
 
         {/* ---------------------------------------------------- the tags */}
         {tags.length > 0 && (

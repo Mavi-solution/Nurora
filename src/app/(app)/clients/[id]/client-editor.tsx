@@ -4,8 +4,15 @@ import { useRouter } from "next/navigation";
 import { ValidatedField } from "@/components/validated-field";
 import { validators } from "@/lib/validation";
 import { useState, useTransition } from "react";
+import { Dialog } from "@/components/dialog";
+import { PhoneField } from "@/components/phone-field";
 import { Alert, Button, Card, CardHeader, Field, fieldClass } from "@/components/ui";
-import { archiveClient, updateClientRecord } from "@/lib/actions/clients";
+import {
+  archiveClient,
+  restoreClient,
+  updateClientRecord,
+} from "@/lib/actions/clients";
+import { GENDERS, LANGUAGES, withCurrent } from "@/lib/options";
 import type { Client } from "@/lib/types";
 
 export function ClientEditor({
@@ -21,10 +28,15 @@ export function ClientEditor({
   const [phone, setPhone] = useState(client.phone ?? "");
   const [email, setEmail] = useState(client.email ?? "");
   const [counsellorId, setCounsellorId] = useState(client.counsellor_id ?? "");
+  const [gender, setGender] = useState(client.gender ?? "");
+  const [preferredLanguage, setPreferredLanguage] = useState(
+    client.preferred_language ?? "",
+  );
   const [notes, setNotes] = useState(client.notes ?? "");
 
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function save() {
@@ -37,6 +49,8 @@ export function ClientEditor({
         phone,
         email,
         counsellorId: counsellorId || null,
+        gender,
+        preferredLanguage,
         notes,
       });
 
@@ -48,12 +62,32 @@ export function ClientEditor({
     });
   }
 
+  /*
+   * Archiving used to go through window.confirm(). That is why it was
+   * reported as not working: the browser suppresses confirm() in a
+   * number of contexts, and when it is suppressed it returns false, so
+   * the button did precisely nothing and said nothing. A real dialog
+   * both asks and reports.
+   */
   function archive() {
-    if (!confirm(`Archive ${client.full_name}? They stop appearing in booking lists.`)) return;
+    setError(null);
     startTransition(async () => {
       const result = await archiveClient(client.id);
+      setConfirmArchive(false);
       if (!result.ok) setError(result.error);
-      else router.push("/clients");
+      else router.push("/clients?view=archived");
+    });
+  }
+
+  function restore() {
+    setError(null);
+    startTransition(async () => {
+      const result = await restoreClient(client.id);
+      if (!result.ok) setError(result.error);
+      else {
+        setSaved(true);
+        router.refresh();
+      }
     });
   }
 
@@ -79,15 +113,12 @@ export function ClientEditor({
           />
         </Field>
 
-        <ValidatedField
-                      label="Phone"
-                      hint="SMS and WhatsApp reminders go here."
-                      type="tel"
-                      inputMode="tel"
-                      value={phone}
-                      onChange={setPhone}
-                      validate={validators.phone()}
-                    />
+        <PhoneField
+          label="Phone"
+          hint="SMS and WhatsApp reminders go here."
+          value={phone}
+          onChange={setPhone}
+        />
 
         <ValidatedField
                       label="Email"
@@ -98,6 +129,36 @@ export function ClientEditor({
                       onChange={setEmail}
                       validate={validators.email()}
                     />
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Gender">
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className={fieldClass}
+            >
+              <option value="">Not recorded</option>
+              {withCurrent(GENDERS, gender).map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Preferred language"
+            hint="Used to match them to a counsellor who speaks it."
+          >
+            <select
+              value={preferredLanguage}
+              onChange={(e) => setPreferredLanguage(e.target.value)}
+              className={fieldClass}
+            >
+              <option value="">No preference</option>
+              {withCurrent(LANGUAGES, preferredLanguage).map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
 
         <Field label="Primary counsellor">
           <select
@@ -127,11 +188,54 @@ export function ClientEditor({
           <Button onClick={save} disabled={pending} className="flex-1">
             {pending ? "Saving…" : "Save changes"}
           </Button>
-          <Button variant="ghost" onClick={archive} disabled={pending} className="text-red-600">
-            Archive
-          </Button>
+          {client.is_active ? (
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmArchive(true)}
+              disabled={pending}
+              className="text-red-600"
+            >
+              Archive
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={restore} disabled={pending}>
+              {pending ? "Restoring…" : "Restore"}
+            </Button>
+          )}
         </div>
       </div>
+
+      <Dialog
+        open={confirmArchive}
+        onClose={() => setConfirmArchive(false)}
+        title={`Archive ${client.full_name}?`}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setConfirmArchive(false)}
+              disabled={pending}
+            >
+              Keep them
+            </Button>
+            <Button
+              variant="danger"
+              className="flex-1"
+              onClick={archive}
+              disabled={pending}
+            >
+              {pending ? "Archiving…" : "Archive"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-muted leading-relaxed">
+          They stop appearing in booking lists and search. Their history,
+          invoices and notes are all kept, and you can restore them from the
+          Archived tab on the Clients list at any time.
+        </p>
+      </Dialog>
     </Card>
   );
 }

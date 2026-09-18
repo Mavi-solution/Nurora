@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { loadDaysOff } from "@/lib/business/days-off";
 import { canStartSession } from "@/lib/business/session-start";
+import { dateKeyInTimeZone } from "@/lib/time";
 import { notifyAppointmentEvent } from "@/lib/notify/appointment";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment } from "@/lib/types";
@@ -28,6 +30,34 @@ const bookSchema = z.object({
   bookingNotes: z.string().trim().max(2000).optional().nullable(),
 });
 
+/**
+ * Refuse a booking that lands on a day the counsellor is not working.
+ *
+ * Hiding the slot is a courtesy; this is the guarantee. A stale tab, a
+ * back button, or a direct call to the action can all present a time
+ * that was free when the page rendered and is not any more — and the
+ * failure is expensive in exactly one direction: a client is told they
+ * have an appointment, turns up, and nobody is there.
+ *
+ * The date is derived from the INSTANT being booked, in the
+ * counsellor's own timezone, not from anything the browser sent. A
+ * separate date field can disagree with the time it supposedly
+ * describes; the instant cannot.
+ */
+async function dayOffRefusal(
+  counsellorId: string,
+  startsAt: Date,
+  timezone: string,
+): Promise<string | null> {
+  const dateKey = dateKeyInTimeZone(startsAt, timezone);
+  const daysOff = await loadDaysOff(dateKey);
+  const reason = daysOff.reasonFor(counsellorId);
+  if (!reason) return null;
+
+  const who = daysOff.clinicClosed ? "That day" : "That counsellor";
+  return `${who} is unavailable on ${dateKey} — ${reason}. Pick another day.`;
+}
+
 export async function bookAppointment(input: unknown) {
   const parsed = bookSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
@@ -41,6 +71,19 @@ export async function bookAppointment(input: unknown) {
 
   const startsAt = new Date(v.startsAt);
   const endsAt = new Date(startsAt.getTime() + v.durationMinutes * 60_000);
+
+  const { data: counsellor } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", v.counsellorId)
+    .maybeSingle();
+
+  const refusal = await dayOffRefusal(
+    v.counsellorId,
+    startsAt,
+    (counsellor?.timezone as string) ?? profile.timezone,
+  );
+  if (refusal) return fail(refusal);
 
   const { data, error } = await supabase
     .from("appointments")
@@ -293,6 +336,22 @@ export async function rescheduleAppointment(
 
   const startsAt = new Date(startsAtIso);
   const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
+
+  // Checked BEFORE the old slot is freed. Moving a session onto a
+  // week-off and then failing would leave the client with a cancelled
+  // appointment and no replacement.
+  const { data: counsellor } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", original.counsellor_id as string)
+    .maybeSingle();
+
+  const refusal = await dayOffRefusal(
+    original.counsellor_id as string,
+    startsAt,
+    (counsellor?.timezone as string) ?? profile.timezone,
+  );
+  if (refusal) return fail(refusal);
 
   // 1. Free the old slot.
   const { error: cancelError } = await supabase

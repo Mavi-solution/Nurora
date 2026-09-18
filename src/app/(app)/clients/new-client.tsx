@@ -5,8 +5,11 @@ import { ValidatedField } from "@/components/validated-field";
 import { validators } from "@/lib/validation";
 import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
+import { PhoneField } from "@/components/phone-field";
+import { describeCounsellor } from "@/components/counsellor-select";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
 import { createClientRecord } from "@/lib/actions/clients";
+import { GENDERS, LANGUAGES, withCurrent } from "@/lib/options";
 import type { CounsellorSummary } from "@/lib/types";
 
 export function NewClientButton({
@@ -24,6 +27,8 @@ export function NewClientButton({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [counsellorId, setCounsellorId] = useState("");
+  const [gender, setGender] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState("");
   const [notes, setNotes] = useState("");
 
   function submit() {
@@ -35,6 +40,8 @@ export function NewClientButton({
         phone,
         email,
         counsellorId: counsellorId || null,
+        gender,
+        preferredLanguage,
         notes,
       });
 
@@ -45,6 +52,8 @@ export function NewClientButton({
       setAge("");
       setPhone("");
       setEmail("");
+      setGender("");
+      setPreferredLanguage("");
       setNotes("");
       router.refresh();
     });
@@ -83,28 +92,24 @@ export function NewClientButton({
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Age">
-              <input
-                type="number"
-                min={0}
-                max={120}
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                className={fieldClass}
-                placeholder="36"
-              />
-            </Field>
-            <ValidatedField
-                      label="Phone"
-                      hint="For reminders."
-                      type="tel"
-                      inputMode="tel"
-                      value={phone}
-                      onChange={setPhone}
-                      validate={validators.phone()}
-                    />
-          </div>
+          <Field label="Age">
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              className={fieldClass}
+              placeholder="36"
+            />
+          </Field>
+
+          <PhoneField
+            label="Phone"
+            hint="For reminders."
+            value={phone}
+            onChange={setPhone}
+          />
 
           <ValidatedField
                       label="Email"
@@ -116,6 +121,36 @@ export function NewClientButton({
                       validate={validators.email()}
                     />
 
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Gender">
+              <select
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className={fieldClass}
+              >
+                <option value="">Select gender</option>
+                {GENDERS.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </Field>
+            {/* Recorded here rather than only at the booking desk: it is
+                a property of the client, and the desk matches on it when
+                choosing who can see them. */}
+            <Field label="Preferred language">
+              <select
+                value={preferredLanguage}
+                onChange={(e) => setPreferredLanguage(e.target.value)}
+                className={fieldClass}
+              >
+                <option value="">No preference</option>
+                {withCurrent(LANGUAGES, preferredLanguage).map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
           <Field label="Primary counsellor">
             <select
               value={counsellorId}
@@ -125,7 +160,7 @@ export function NewClientButton({
               <option value="">Not assigned</option>
               {counsellors.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.full_name}
+                  {describeCounsellor(c)}
                 </option>
               ))}
             </select>

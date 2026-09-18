@@ -313,6 +313,14 @@ export type BricRow = {
   status: string;
   detail: string;
   href: string;
+  /**
+   * The replacement session, on a row under Reschedule. Lets the board
+   * link straight to where a moved session went instead of only saying
+   * that it moved.
+   */
+  movedToId?: string | null;
+  /** This row is a live booking that can still be moved. */
+  canReschedule?: boolean;
 };
 
 /** The clinic's one configuration row. */
@@ -339,6 +347,8 @@ export type ClinicSettings = {
   nulancer_individual_cents: number;
   nulancer_couple_cents: number;
   review_monthly_target: number;
+  /** Weekdays the clinic opens at all, 0 = Sunday. */
+  open_weekdays: number[];
   updated_by: string | null;
   updated_at: string;
 };
@@ -518,7 +528,18 @@ export type CounsellorSummary = Pick<
   | "default_duration_minutes"
   | "currency"
   | "languages"
->;
+> & {
+  /**
+   * What they specialise in, as plain names.
+   *
+   * Carried on the summary rather than fetched per screen because
+   * every booking surface has to show it: QA reported the counsellor
+   * dropdowns as unusable precisely because a list of bare names gives
+   * the desk nothing to choose ON. Optional so a caller that has not
+   * joined the table yet still type-checks.
+   */
+  specialisms?: string[];
+};
 
 /** A counsellor plus what they help with — what the booking desk matches on. */
 export type CounsellorWithSkills = CounsellorSummary & {

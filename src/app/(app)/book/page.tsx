@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { CLINICIAN_ROLES, isStaff, requireSession } from "@/lib/auth";
+import { getCounsellors } from "@/lib/data/reference";
 import { createClient } from "@/lib/supabase/server";
 import { dateKeyInTimeZone } from "@/lib/time";
-import type { CounsellorSummary, Specialism } from "@/lib/types";
+import type { Specialism } from "@/lib/types";
 import { BookingDesk } from "./booking-desk";
 
 export const metadata = { title: "Book a session" };
@@ -18,21 +19,17 @@ export default async function BookPage() {
 
   const supabase = await createClient();
 
-  const [{ data: specialisms }, { data: counsellors }, { data: languageRows }] =
+  // The roster comes from the shared reference loader so it arrives with
+  // each counsellor's specialisms attached — the desk picks on those,
+  // not on names.
+  const [{ data: specialisms }, counsellors, { data: languageRows }] =
     await Promise.all([
       supabase
         .from("specialisms")
         .select("*")
         .eq("is_active", true)
         .order("sort_order"),
-      supabase
-        .from("profiles")
-        .select(
-          "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages",
-        )
-        .in("role", CLINICIAN_ROLES)
-        .eq("is_active", true)
-        .order("full_name"),
+      getCounsellors(),
       supabase.from("profiles").select("languages").in("role", CLINICIAN_ROLES),
     ]);
 
@@ -47,7 +44,7 @@ export default async function BookPage() {
     <BookingDesk
       profile={profile}
       specialisms={(specialisms ?? []) as Specialism[]}
-      counsellors={(counsellors ?? []) as CounsellorSummary[]}
+      counsellors={counsellors}
       languages={languages}
       todayKey={dateKeyInTimeZone(new Date(), profile.timezone)}
     />

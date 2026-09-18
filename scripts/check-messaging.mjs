@@ -7,6 +7,7 @@
  *   supabase db reset && node scripts/check-messaging.mjs
  */
 import { chromium } from "playwright";
+import { pickDate } from "./lib/pick-date.mjs";
 
 const APP = "http://localhost:3000";
 const PASSWORD = "nurora1234";
@@ -79,7 +80,7 @@ try {
   // on the wall clock, so a run late in the working day would otherwise
   // find an empty grid and fail for reasons unrelated to the feature.
   const target = nextWorkingDay(3);
-  await dialog.getByLabel("Date").fill(target);
+  await pickDate(dialog, target);
   await page.waitForTimeout(1500);
 
   // Slots load over /api/slots; wait for the grid rather than a fixed delay.
