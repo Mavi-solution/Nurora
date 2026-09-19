@@ -31,7 +31,8 @@ const MAX_AGE = 300;
 const CACHE_ENABLED = process.env.NODE_ENV === "production";
 
 async function probe(): Promise<MissingMigration[]> {
-  const client = createAdminClientOrNull() ?? (await createClient());
+  const admin = createAdminClientOrNull();
+  const client = admin ?? (await createClient());
   const missing: MissingMigration[] = [];
 
   /*
@@ -58,6 +59,24 @@ async function probe(): Promise<MissingMigration[]> {
       migration: "0012_message_templates",
       enables: "editable WhatsApp templates and their schedules",
     });
+  }
+
+  /*
+   * The attachments bucket, which is 0011.
+   *
+   * Only probed through the service role. A user token can be refused
+   * the storage admin API for reasons that have nothing to do with the
+   * bucket existing, and a diagnostic that cries wolf is worse than one
+   * that stays quiet.
+   */
+  if (admin) {
+    const { data: bucket } = await admin.storage.getBucket("attachments");
+    if (!bucket) {
+      missing.push({
+        migration: "0011_attachment_storage",
+        enables: "attaching a recording, voice note or file to a booking",
+      });
+    }
   }
 
   if (preferred.error) {

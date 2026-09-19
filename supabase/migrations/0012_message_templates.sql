@@ -17,22 +17,37 @@
 -- it is the fastest way to get a sender blocked. Every schedule here
 -- hangs off a real appointment, which is what Meta calls a utility
 -- message and what a clinic actually needs.
+--
+-- RE-RUNNABLE. Running this twice used to fail with
+--   42710: type "message_trigger" already exists
+-- and stop there, leaving the types created and the tables not. Every
+-- object below is now guarded, so the file can be run again over a
+-- half-applied database and finish. The seed rows use ON CONFLICT DO
+-- NOTHING rather than DO UPDATE on purpose: once a practice has edited
+-- the wording, re-running a migration must not quietly put the
+-- original copy back.
 -- =====================================================================
 
-create type message_trigger as enum (
-  'before_appointment',
-  'after_appointment',
-  'on_booking',
-  'on_reschedule',
-  'on_cancel'
-);
+do $$ begin
+  create type message_trigger as enum (
+    'before_appointment',
+    'after_appointment',
+    'on_booking',
+    'on_reschedule',
+    'on_cancel'
+  );
+exception when duplicate_object then null;
+end $$;
 
-create type message_audience as enum ('client', 'counsellor', 'both');
+do $$ begin
+  create type message_audience as enum ('client', 'counsellor', 'both');
+exception when duplicate_object then null;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- message_templates
 -- ---------------------------------------------------------------------
-create table message_templates (
+create table if not exists message_templates (
   id          uuid primary key default gen_random_uuid(),
   -- Stable slug so code can find a specific one (the booking
   -- confirmation) without depending on its display name.
@@ -65,13 +80,14 @@ create table message_templates (
   updated_at  timestamptz not null default now()
 );
 
+drop trigger if exists message_templates_updated_at on message_templates;
 create trigger message_templates_updated_at before update on message_templates
   for each row execute function set_updated_at();
 
 -- ---------------------------------------------------------------------
 -- message_schedules
 -- ---------------------------------------------------------------------
-create table message_schedules (
+create table if not exists message_schedules (
   id          uuid primary key default gen_random_uuid(),
   template_id uuid not null references message_templates(id) on delete cascade,
   name        text not null check (length(trim(name)) > 0),
@@ -94,9 +110,10 @@ create table message_schedules (
   unique (template_id, trigger, offset_minutes, audience)
 );
 
-create index message_schedules_active_idx on message_schedules (trigger)
+create index if not exists message_schedules_active_idx on message_schedules (trigger)
   where is_active;
 
+drop trigger if exists message_schedules_updated_at on message_schedules;
 create trigger message_schedules_updated_at before update on message_schedules
   for each row execute function set_updated_at();
 
@@ -106,13 +123,17 @@ create trigger message_schedules_updated_at before update on message_schedules
 alter table message_templates enable row level security;
 alter table message_schedules enable row level security;
 
+drop policy if exists message_templates_select on message_templates;
 create policy message_templates_select on message_templates
   for select to authenticated using (is_staff());
+drop policy if exists message_templates_write on message_templates;
 create policy message_templates_write on message_templates
   for all to authenticated using (is_admin()) with check (is_admin());
 
+drop policy if exists message_schedules_select on message_schedules;
 create policy message_schedules_select on message_schedules
   for select to authenticated using (is_staff());
+drop policy if exists message_schedules_write on message_schedules;
 create policy message_schedules_write on message_schedules
   for all to authenticated using (is_admin()) with check (is_admin());
 
@@ -175,15 +196,18 @@ If you would like to book your next session with {{counsellor_name}}, just reply
 — {{practice}}',
     array['client_name','date'],
     false
-  );
+  )
+on conflict (key) do nothing;
 
 -- The reminder that used to be LEAD_DAYS = 3, now data.
 insert into message_schedules (template_id, name, trigger, offset_minutes, audience)
 select id, 'Three days before', 'before_appointment', 3 * 24 * 60, 'both'
-from message_templates where key = 'session_reminder';
+from message_templates where key = 'session_reminder'
+on conflict (template_id, trigger, offset_minutes, audience) do nothing;
 
 -- Left switched off: sending it is a decision for the practice, not a
 -- default that starts messaging clients the moment this ships.
 insert into message_schedules (template_id, name, trigger, offset_minutes, audience, is_active)
 select id, 'Morning after the session', 'after_appointment', 16 * 60, 'client', false
-from message_templates where key = 'post_session_followup';
+from message_templates where key = 'post_session_followup'
+on conflict (template_id, trigger, offset_minutes, audience) do nothing;
