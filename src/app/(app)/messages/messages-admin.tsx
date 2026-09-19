@@ -53,10 +53,12 @@ function humanOffset(minutes: number): string {
  * as the client will.
  */
 export function MessagesAdmin({
-  templates, whatsappReady,
+  templates, whatsappReady, whatsappProblems,
 }: {
   templates: MessageTemplateWithSchedules[];
   whatsappReady: boolean;
+  /** Which variable is wrong and how — never the value itself. */
+  whatsappProblems: string[];
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -123,8 +125,33 @@ export function MessagesAdmin({
       {!whatsappReady && (
         <div className="mb-4">
           <Alert tone="error">
-            WhatsApp is not connected on this deployment, so nothing here will
-            actually send. Set the Twilio variables and redeploy.
+            <span className="block font-medium">
+              WhatsApp is not connected, so nothing here will actually send.
+            </span>
+            {whatsappProblems.length > 0 ? (
+              <>
+                {/* Naming the variable matters: the commonest cause is one
+                    created in Vercel with an EMPTY value, which appears
+                    set in every listing and sends nothing. */}
+                <ul className="mt-2 space-y-1">
+                  {whatsappProblems.map((p) => (
+                    <li key={p} className="text-[13px]">
+                      <code className="font-mono text-[12px]">{p.split(":")[0]}</code>
+                      {" — "}
+                      {p.slice(p.indexOf(":") + 1).trim()}
+                    </li>
+                  ))}
+                </ul>
+                <span className="block text-[13px] mt-2">
+                  Fix it in the project&apos;s environment variables and
+                  redeploy. /api/health reports the same detail.
+                </span>
+              </>
+            ) : (
+              <span className="block text-[13px] mt-1">
+                Set the Twilio variables and redeploy.
+              </span>
+            )}
           </Alert>
         </div>
       )}

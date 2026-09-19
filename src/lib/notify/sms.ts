@@ -1,6 +1,7 @@
 import type { SendResult } from "./email";
 import { toE164 } from "./phone";
 import { serverEnv } from "../server-env";
+import { whatsappStatus } from "./twilio-env";
 
 /*
  * Read per call rather than once at module scope.
@@ -121,8 +122,7 @@ export async function sendWhatsApp(
 
 /** True when WhatsApp can actually send, checked against the live env. */
 export function whatsappConfigured(): boolean {
-  const { sid, token, whatsappFrom } = twilio();
-  return Boolean(sid && token && whatsappFrom);
+  return whatsappStatus().connected;
 }
 
 export function channelDestination(
@@ -133,3 +133,6 @@ export function channelDestination(
   if (!e164) return null;
   return channel === "whatsapp" ? `whatsapp:${e164}` : e164;
 }
+
+export { whatsappStatus } from "./twilio-env";
+export type { WhatsAppStatus } from "./twilio-env";

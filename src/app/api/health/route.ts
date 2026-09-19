@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { serverEnv } from "@/lib/server-env";
+import { whatsappStatus } from "@/lib/notify/sms";
 import { missingMigrations } from "@/lib/data/schema-health";
 import { misprefixedVars, serviceRoleKey } from "@/lib/supabase/env";
 
@@ -34,7 +35,9 @@ export async function GET() {
       // what the RUNNING server can see.
       CRON_SECRET: serverEnv("CRON_SECRET")
         ? "set (reminder sweep protected)"
-        : "MISSING (reminder sweep disabled in production)",
+        : Object.prototype.hasOwnProperty.call(process.env, "CRON_SECRET")
+          ? "present but EMPTY (reminder sweep disabled in production)"
+          : "MISSING (reminder sweep disabled in production)",
       TWILIO_WHATSAPP_FROM: serverEnv("TWILIO_WHATSAPP_FROM") ? "set" : "unset (WhatsApp skipped)",
       RESEND_API_KEY: serverEnv("RESEND_API_KEY") ? "set" : "unset (email skipped)",
       advanceTiersConfigured: Boolean(
@@ -94,6 +97,15 @@ export async function GET() {
       .sort(),
     // NEXT_PUBLIC_* are inlined when the bundle is built, so a value
     // added AFTER the last build will not be present until you redeploy.
+    /*
+     * The same answer the Messages screen renders its banner from.
+     *
+     * "Set the Twilio variables and redeploy" is useless advice to
+     * someone who has set them, so this names the variable and what is
+     * wrong with it. Values are never included — only lengths and
+     * verdicts.
+     */
+    whatsapp: whatsappStatus(),
     // Migrations the database has not had run. A feature missing for
     // this reason looks identical to one that is broken, from the
     // outside, so it is worth stating plainly — it belongs beside
