@@ -1,4 +1,4 @@
-import { monthOffSummary } from "@/lib/actions/leave";
+import { monthOffSummary, practiceOffSummary } from "@/lib/actions/leave";
 import { isAdmin, requireStaff } from "@/lib/auth";
 import { getMonthWeeks } from "@/lib/business/weekoff";
 import { createClient } from "@/lib/supabase/server";
@@ -30,22 +30,37 @@ export default async function LeavePage({
 
   const [year, month] = monthKey.split("-").map(Number);
 
-  // Only an admin may look at someone else's month.
-  const staffId = admin && params.staff ? params.staff : profile.id;
+  /*
+   * An admin lands on EVERYONE, not on themselves.
+   *
+   * The screen used to default to the viewer's own calendar, so an
+   * admin opened the practice's rota and saw their own empty month —
+   * two counsellors could be away that week and nothing on screen said
+   * so. Their own month is still one click away, and picking a name
+   * still opens that person's calendar.
+   */
+  const staffId = admin ? (params.staff ?? null) : profile.id;
 
   const supabase = await createClient();
   const { data: staffRows } = admin
     ? await supabase
         .from("profiles")
         .select(
-          "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages",
+          "id, full_name, avatar_url, headline, timezone, role, default_session_fee_cents, default_duration_minutes, currency, languages, preferred_language",
         )
         .or("role.in.(counsellor,admin,support),is_admin.eq.true")
         .eq("is_active", true)
         .order("full_name")
     : { data: [] };
 
-  const summary = await monthOffSummary(staffId, year, month);
+  const todayKey = dateKeyInTimeZone(now, profile.timezone);
+
+  // Everyone's month, for the admin overview. Only fetched when it is
+  // actually being shown.
+  const practice =
+    admin && !staffId ? await practiceOffSummary(year, month) : null;
+
+  const summary = await monthOffSummary(staffId ?? profile.id, year, month);
 
   return (
     <LeaveBoard
@@ -57,7 +72,8 @@ export default async function LeavePage({
       year={year}
       month={month}
       weeks={getMonthWeeks(year, month)}
-      todayKey={dateKeyInTimeZone(now, profile.timezone)}
+      todayKey={todayKey}
+      practice={practice?.ok ? practice.data : null}
       {...summary}
     />
   );

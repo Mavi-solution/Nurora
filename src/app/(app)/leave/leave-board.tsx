@@ -22,6 +22,8 @@ import {
   removeWeekOff,
 } from "@/lib/actions/leave";
 import type { MonthWeek } from "@/lib/business/weekoff";
+import type { LeaveOverview } from "@/lib/business/leave-overview";
+import { LeaveOverviewBoard } from "./leave-overview-board";
 import type {
   CounsellorSummary,
   Holiday,
@@ -59,11 +61,13 @@ export function LeaveBoard({
   leaves,
   holidays,
   todayKey,
+  practice,
 }: {
   profile: Profile;
   isAdmin: boolean;
   staff: CounsellorSummary[];
-  staffId: string;
+  /** Whose calendar, or null for the whole practice. */
+  staffId: string | null;
   monthKey: string;
   year: number;
   month: number;
@@ -74,6 +78,15 @@ export function LeaveBoard({
   holidays: Holiday[];
   /** Today in the viewer's timezone — the boundary for "past". */
   todayKey: string;
+  /**
+   * Everyone's month. Present only for an admin who has not drilled
+   * into one person, which is the view they land on.
+   */
+  practice: {
+    overview: LeaveOverview;
+    leaves: Leave[];
+    holidays: Holiday[];
+  } | null;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +100,14 @@ export function LeaveBoard({
   const [holidayName, setHolidayName] = useState("");
 
   const viewingSelf = staffId === profile.id;
+  const viewingEveryone = practice !== null;
+
+  /*
+   * Whose calendar the per-person half acts on. "Everyone" is a view,
+   * not a person — you cannot book a week-off for it — so the calendar
+   * falls back to the viewer's own, which is what it shows underneath.
+   */
+  const calendarStaffId = staffId ?? profile.id;
 
   const dateKey = (day: number) =>
     `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -130,11 +151,13 @@ export function LeaveBoard({
     });
   }
 
-  function go(next: { month?: string; staff?: string }) {
+  function go(next: { month?: string; staff?: string | null }) {
     const search = new URLSearchParams();
     search.set("month", next.month ?? monthKey);
-    const s = next.staff ?? staffId;
-    if (isAdmin && s !== profile.id) search.set("staff", s);
+    // `staff` absent means everyone, for an admin. A non-admin only
+    // ever sees their own, so the parameter is ignored for them.
+    const who = next.staff === undefined ? staffId : next.staff;
+    if (isAdmin && who) search.set("staff", who);
     router.push(`/leave?${search}`);
   }
 
@@ -218,14 +241,15 @@ export function LeaveBoard({
         {isAdmin && staff.length > 0 && (
           <div className="w-64">
           <select
-            value={staffId}
-            onChange={(e) => go({ staff: e.target.value })}
+            value={staffId ?? ""}
+            onChange={(e) => go({ staff: e.target.value || null })}
             aria-label="Whose calendar"
             /* fieldClass already sets w-full; a second width utility on
                the same element is a coin toss over which one Tailwind
                emits last. Size it from a wrapper instead. */
             className={fieldClass}
           >
+            <option value="">Everyone</option>
             {staff.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.id === profile.id ? `${s.full_name} (you)` : s.full_name}
@@ -235,7 +259,22 @@ export function LeaveBoard({
           </div>
         )}
       </div>
-
+      {/*
+        An admin lands on the whole practice; drilling into a name shows
+        that person's calendar. A counsellor only ever has their own, so
+        this branch never fires for them.
+      */}
+      {viewingEveryone && practice ? (
+        <LeaveOverviewBoard
+          overview={practice.overview}
+          leaves={practice.leaves}
+          holidays={practice.holidays}
+          todayKey={todayKey}
+          monthKey={monthKey}
+          onPickPerson={(id) => go({ staff: id })}
+        />
+      ) : (
+        <>
       {/* Allocated, used and left as three separate numbers. They were
           two, with "left" tucked under "taken" as a subtitle, which is
           exactly the one a counsellor is looking for. */}
@@ -371,7 +410,13 @@ export function LeaveBoard({
         </Card>
       </div>
 
-      {/* -------------------------------------------------------- dialogs */}
+        </>
+      )}
+
+      {/* --------------------------------------------------------- dialogs
+       * OUTSIDE the branch: "Add holiday" is an admin action that
+       * belongs on the practice view too, and the day dialog is what
+       * the per-person calendar opens. */}
       <Dialog
         open={selected !== null}
         onClose={() => setDayOpen(null)}
@@ -400,7 +445,7 @@ export function LeaveBoard({
               </div>
             ) : (
               <Button className="w-full" disabled={pending || remaining === 0}
-                onClick={() => run(() => addWeekOff({ onDate: selected, staffId }), "Week-off booked.")}>
+                onClick={() => run(() => addWeekOff({ onDate: selected, staffId: calendarStaffId }), "Week-off booked.")}>
                 {remaining === 0
                   ? "No week-offs left this month"
                   : `Take a week-off (${remaining} left)`}
@@ -430,7 +475,7 @@ export function LeaveBoard({
                   placeholder="Reason (optional)" className={fieldClass} />
                 <Button variant="secondary" size="sm" disabled={pending}
                   onClick={() => run(
-                    () => logLeave({ onDate: selected, kind: leaveKind, reason: leaveReason, staffId }),
+                    () => logLeave({ onDate: selected, kind: leaveKind, reason: leaveReason, staffId: calendarStaffId }),
                     "Leave logged.",
                   )}>
                   Log leave

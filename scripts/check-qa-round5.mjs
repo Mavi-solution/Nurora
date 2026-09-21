@@ -170,7 +170,11 @@ try {
 
   /* ================================================ week-off past days */
   step("Past days are not selectable, for an admin either");
-  await page.goto(`${APP}/leave`, { waitUntil: "networkidle" });
+  // An admin lands on the whole practice now; these checks are about
+  // the per-person calendar, so ask for it by name. The overview has
+  // its own suite — check-leave-admin.mjs.
+  await page.goto(`${APP}/leave?staff=${me}`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(600);
   const today = new Date();
   if (today.getDate() > 1) {
     const first = page.getByRole("button", { name: /^1$/ }).first();

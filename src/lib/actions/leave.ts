@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getMonthWeeks, weekOffQuotaForMonth } from "@/lib/business/weekoff";
+import {
+  summariseMonth,
+  type WorkingRule,
+} from "@/lib/business/leave-overview";
 import { createClient } from "@/lib/supabase/server";
 import { dateKeyInTimeZone } from "@/lib/time";
 import type { Holiday, Leave, LeaveKind, WeekOff } from "@/lib/types";
@@ -334,4 +338,85 @@ function monthName(year: number, month: number): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+/* ------------------------------------------------- the practice-wide view */
+
+/**
+ * Who is off across the whole practice, for a month.
+ *
+ * The per-person calendar answers "when am I off"; an admin running a
+ * rota needs "who is off, and what does that cost us" — a question the
+ * old screen could only answer by being asked about each counsellor in
+ * turn, which is how two people being away could go unnoticed.
+ *
+ * Reads are admin-only. The leaves policy is scoped to your own rows
+ * plus admins, so a counsellor calling this would silently get a
+ * partial picture, which is worse than being refused.
+ */
+export async function practiceOffSummary(year: number, month: number) {
+  const profile = await requireStaffProfile();
+  if (!profileIsAdmin(profile)) {
+    return fail("Only an admin can see everyone's leave.");
+  }
+
+  const supabase = await createClient();
+  const { start, end } = monthBounds(year, month);
+
+  const [
+    { data: staffRows },
+    { data: ruleRows },
+    { data: weekOffRows },
+    { data: leaveRows },
+    { data: holidayRows },
+  ] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, full_name")
+      .or("role.in.(counsellor,admin,support),is_admin.eq.true")
+      .eq("is_active", true)
+      .order("full_name"),
+    supabase
+      .from("availability_rules")
+      .select("counsellor_id, weekday, start_time, end_time, is_active")
+      .eq("is_active", true),
+    supabase
+      .from("week_offs")
+      .select("*")
+      .gte("on_date", start)
+      .lte("on_date", end),
+    supabase
+      .from("leaves")
+      .select("*")
+      .gte("on_date", start)
+      .lte("on_date", end)
+      .order("on_date"),
+    supabase
+      .from("holidays")
+      .select("*")
+      .gte("on_date", start)
+      .lte("on_date", end)
+      .order("on_date"),
+  ]);
+
+  const overview = summariseMonth({
+    year,
+    month,
+    // The MUST-MATCH quota, computed in its one home.
+    quota: weekOffQuotaForMonth(year, month),
+    staff: (staffRows ?? []) as { id: string; full_name: string }[],
+    rules: (ruleRows ?? []) as WorkingRule[],
+    weekOffs: (weekOffRows ?? []) as WeekOff[],
+    leaves: (leaveRows ?? []) as Leave[],
+    holidays: (holidayRows ?? []) as Holiday[],
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      overview,
+      leaves: (leaveRows ?? []) as Leave[],
+      holidays: (holidayRows ?? []) as Holiday[],
+    },
+  };
 }

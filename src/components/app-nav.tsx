@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./ui";
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationBell } from "./notification-bell";
@@ -126,15 +126,7 @@ export function AppNav({
         <NotificationBell initialCount={unreadCount} />
         <ThemeToggle />
 
-        <Link
-          href="/settings"
-          className="flex items-center gap-2 rounded-full pl-1 pr-1 lg:pr-3 py-1 hover:bg-card-muted transition-colors"
-        >
-          <Avatar name={profile.full_name || "You"} url={profile.avatar_url} size={28} />
-          <span className="hidden lg:block text-[13px] font-medium max-w-32 truncate">
-            {profile.full_name || "Set your name"}
-          </span>
-        </Link>
+        <ProfileMenu profile={profile} />
       </header>
 
       {/* ---------------------------------------------- side drawer */}
@@ -328,6 +320,110 @@ const BadgeIcon = () => (
     <path d="M8.5 12.5 7 21l5-2.5L17 21l-1.5-8.5" />
   </svg>
 );
+/**
+ * The profile name, as a menu.
+ *
+ * Signing out lived only at the bottom of the side drawer, which on a
+ * phone is behind the hamburger — so the obvious thing to click, your
+ * own name, went to Settings and offered no way out. The name now opens
+ * a menu with both. The drawer keeps its Sign out; two doors to the
+ * same room is not a problem, one hidden door is.
+ */
+function ProfileMenu({ profile }: { profile: Profile }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+
+  // Navigating away closes it — otherwise it hangs over the new page.
+  useEffect(() => setOpen(false), [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Account menu for ${profile.full_name || "you"}`}
+        className="flex items-center gap-2 rounded-full pl-1 pr-1 lg:pr-2.5 py-1 hover:bg-card-muted transition-colors"
+      >
+        <Avatar name={profile.full_name || "You"} url={profile.avatar_url} size={28} />
+        <span className="hidden lg:block text-[13px] font-medium max-w-32 truncate">
+          {profile.full_name || "Set your name"}
+        </span>
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`hidden lg:block text-faint transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-2 w-60 rounded-2xl border border-hairline bg-card shadow-card overflow-hidden animate-in-up"
+        >
+          <div className="px-4 py-3 border-b border-hairline">
+            <p className="text-[13px] font-semibold truncate">
+              {profile.full_name || "Set your name"}
+            </p>
+            <p className="text-[12px] text-muted truncate">
+              {profile.email ?? profile.role}
+            </p>
+          </div>
+
+          <Link
+            href="/settings"
+            role="menuitem"
+            className="flex items-center gap-3 px-4 py-2.5 text-[13px] text-muted hover:text-body hover:bg-card-muted transition-colors"
+          >
+            <SettingsIcon />
+            Settings
+          </Link>
+
+          <form action="/auth/signout" method="post" className="border-t border-hairline">
+            <button
+              type="submit"
+              role="menuitem"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-muted hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+            >
+              <SignOutIcon />
+              Sign out
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const SettingsIcon = () => (
   <svg {...icon}>
     <circle cx="12" cy="12" r="3" />

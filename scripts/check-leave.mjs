@@ -61,10 +61,27 @@ async function takeWeekOff(day) {
 try {
   await signIn(page, "anisha@nurora.demo");
 
+  /*
+   * An admin now LANDS on the whole practice, so a test about one
+   * person's allowance has to say whose. The overview has its own
+   * suite — check-leave-admin.mjs.
+   *
+   * The id comes off the staff picker rather than out of the database,
+   * because this suite deliberately drives only the UI.
+   */
+  await page.goto(`${APP}/leave`, { waitUntil: "networkidle" });
+  const me = await page
+    .getByLabel("Whose calendar")
+    .locator("option", { hasText: "(you)" })
+    .first()
+    .getAttribute("value");
+  check("the admin can find their own calendar", Boolean(me), String(me));
+  const mine = (month) => `${APP}/leave?month=${month}&staff=${me}`;
+
   /* --- the handoff's two named months, shown through the UI --------- */
   step("The quota on screen matches the computed rule");
 
-  await page.goto(`${APP}/leave?month=2026-08`, { waitUntil: "networkidle" });
+  await page.goto(mine("2026-08"), { waitUntil: "networkidle" });
   check("page renders", await page.getByRole("heading", { name: "Week-offs & Leave", level: 1 }).isVisible());
   const statText = (label) =>
     page.getByText(label, { exact: true })
@@ -75,7 +92,7 @@ try {
   check("August renders 4 week bands", (await page.getByTitle(/^Week \d+:/).count()) === 4,
     `${await page.getByTitle(/^Week \d+:/).count()} bands`);
 
-  await page.goto(`${APP}/leave?month=2026-09`, { waitUntil: "networkidle" });
+  await page.goto(mine("2026-09"), { waitUntil: "networkidle" });
   const sepAllowance = await statText("Allocated");
   check("September 2026 shows an allocation of 5", (sepAllowance ?? "").trim() === "5", sepAllowance ?? "");
   check("September renders 5 week bands", (await page.getByTitle(/^Week \d+:/).count()) === 5,
@@ -83,7 +100,7 @@ try {
 
   /* --- one per week, then the quota itself -------------------------- */
   step("August 2026: one week-off per week, then the allowance runs out");
-  await page.goto(`${APP}/leave?month=2026-08`, { waitUntil: "networkidle" });
+  await page.goto(mine("2026-08"), { waitUntil: "networkidle" });
   await allowPastDays();
 
   // August 2026 rows after merging: 1-8, 9-15, 16-22, 23-31.
