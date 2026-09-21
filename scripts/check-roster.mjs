@@ -105,6 +105,46 @@ try {
   check("and is flagged as not taking bookings",
     await page.getByText("Not taking bookings").first().isVisible().catch(() => false));
 
+  /*
+   * Your own lane first.
+   *
+   * The roster is read alphabetically, which is right for a list of
+   * people and wrong for a working day: whether a counsellor had to
+   * scroll to find their own sessions came down to their initial.
+   * Everyone else stays alphabetical behind them.
+   */
+  step("The schedule opens on your own lane, whoever you are");
+  sql("update profiles set role='counsellor', is_active=true where full_name in ('Shefrin','Mahek')");
+
+  async function laneOrder(email) {
+    await signIn(page, email);
+    await page.goto(`${APP}/schedule`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(900);
+    return (await page.locator("p.font-semibold.text-\\[15px\\]").allTextContents())
+      .map((n) => n.trim());
+  }
+
+  const alphabetical = ["Anisha", "Mahek", "Ramya", "Saranya", "Shefrin"];
+
+  for (const [email, me] of [
+    ["shefrin@nurora.demo", "Shefrin"],
+    ["ramya@nurora.demo", "Ramya"],
+  ]) {
+    const order = await laneOrder(email);
+    check(`${me} sees their own lane first`, order[0] === me, order.join(" | "));
+    check(`and the rest stay alphabetical for ${me}`,
+      JSON.stringify(order.slice(1)) ===
+        JSON.stringify(alphabetical.filter((n) => n !== me)),
+      order.join(" | "));
+  }
+
+  // Reception has no lane of its own, so nothing should move for them.
+  const deskOrder = await laneOrder("support@nurora.demo");
+  check("reception, who has no lane, still sees the board alphabetical",
+    JSON.stringify(deskOrder) === JSON.stringify(alphabetical), deskOrder.join(" | "));
+
+  await signIn(page, "anisha@nurora.demo");
+
   step("Console / server errors");
   check("no page errors or 5xx", errors.length === 0, errors.slice(0, 3).join(" | "));
 } catch (err) {

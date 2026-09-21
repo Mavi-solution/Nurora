@@ -142,6 +142,15 @@ export function ScheduleBoard({
   const totalBooked = lanes.reduce((n, l) => n + l.appointments.length, 0);
   const isToday = dateKey === todayKey;
 
+  // Same rule as the lanes: yourself first, the rest left alphabetical.
+  const orderedCounsellors = useMemo(
+    () =>
+      [...counsellors].sort(
+        (a, b) => Number(b.id === profile.id) - Number(a.id === profile.id),
+      ),
+    [counsellors, profile.id],
+  );
+
   return (
     <div className="pb-32">
       {/* ------------------------------------- date, time and Today */}
@@ -255,9 +264,9 @@ export function ScheduleBoard({
           className="rounded-full border border-hairline bg-card px-4 py-1.5 text-[13px] cursor-pointer hover:bg-card-muted transition-colors"
         >
           <option value="all">All counsellors</option>
-          {counsellors.map((c) => (
+          {orderedCounsellors.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.full_name}
+              {c.id === profile.id ? `${c.full_name} (you)` : c.full_name}
             </option>
           ))}
         </select>
@@ -615,7 +624,24 @@ function LaneCard({
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-[15px] truncate">{counsellor.full_name}</p>
+          {/*
+            The badge is a SIBLING of the name, not inside it. Nested,
+            it becomes part of the name: the lane read "AnishaYou" to
+            anything asking for the text, and to a screen reader.
+          */}
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="font-semibold text-[15px] truncate">
+              {counsellor.full_name}
+            </p>
+            {/* Says why this lane is at the top. Without it the order
+                looks arbitrary to anyone who knows the roster is
+                alphabetical. */}
+            {viewer.id === counsellor.id && (
+              <span className="shrink-0 rounded-full bg-brand-600 text-white text-[10px] font-semibold px-2 py-0.5">
+                You
+              </span>
+            )}
+          </div>
           <p className="text-[12px] text-muted">
             {lane.offRoster && (
               <span className="text-blush-800 dark:text-blush-300 font-medium">

@@ -121,8 +121,31 @@ export default async function SchedulePage({
     offRosterCounsellors = (orphanRows ?? []) as CounsellorSummary[];
   }
 
-  const allCounsellors = [...counsellors, ...offRosterCounsellors];
   const offRoster = new Set(offRosterCounsellors.map((c) => c.id));
+
+  /*
+   * Your own lane first, then everyone else.
+   *
+   * The roster arrives alphabetically, which is the right order for a
+   * list of people and the wrong one for a working day: a counsellor
+   * opening the schedule is looking for their own sessions, and whether
+   * they had to scroll for them came down to their initial. Sorting by
+   * rank only — and leaving everything within a rank alone — keeps the
+   * alphabetical order for the rest, because Array.sort is stable.
+   *
+   * Reception and back-office admins have no lane of their own, so for
+   * them nothing moves and the board stays alphabetical throughout.
+   */
+  const laneRank = (id: string) => {
+    if (id === profile.id) return 0;
+    // Retired counsellors sit at the bottom: their lane exists only to
+    // stop a booking becoming invisible, not because anyone works it.
+    return offRoster.has(id) ? 2 : 1;
+  };
+
+  const allCounsellors = [...counsellors, ...offRosterCounsellors].sort(
+    (a, b) => laneRank(a.id) - laneRank(b.id),
+  );
   const rules = (ruleRows ?? []) as AvailabilityRule[];
   const exceptions = (exceptionRows ?? []) as AvailabilityException[];
   const clients = (clientRows ?? []) as ClientSummary[];
