@@ -63,7 +63,10 @@ try {
   step("Persona is searchable and shows completion");
   await page.goto(`${APP}/persona`, { waitUntil: "networkidle" });
   check("search box", await page.getByPlaceholder("Name, phone or email").isVisible());
-  check("completion stat", await page.getByText("Persona filled", { exact: true }).isVisible());
+  // "Persona filled" counted one field out of eight; it now reports the
+  // whole intake, and how many first visits are still outstanding.
+  check("completion stat", await page.getByText("Complete", { exact: true }).isVisible());
+  check("first-visit backlog", await page.getByText("First visit due", { exact: true }).isVisible());
 
   step("A counsellor sees BRIC without contact details");
   await signIn(page, "shefrin@nurora.demo");

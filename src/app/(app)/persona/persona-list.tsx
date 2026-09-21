@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, Card, CardHeader, EmptyState, Pill, Stat, fieldClass } from "@/components/ui";
+import { DateField } from "@/components/date-field";
 import { downloadCsv, toCsv } from "@/lib/csv";
+import { personaState } from "@/lib/business/persona";
 import type { Client } from "@/lib/types";
 
 export function PersonaList({
@@ -23,7 +25,14 @@ export function PersonaList({
   const router = useRouter();
   const [search, setSearch] = useState(q);
 
-  const filled = clients.filter((c) => c.presenting_concern).length;
+  /*
+   * "Filled" now means the whole intake, not just that someone typed
+   * something into the concern box. The screen was reporting a
+   * completion percentage against one field out of eight.
+   */
+  const states = clients.map((c) => personaState(c));
+  const filled = states.filter((st) => st.complete).length;
+  const firstVisitDue = states.filter((st) => st.isFirstVisit).length;
 
   function go(next: Partial<{ q: string; from: string; to: string }>) {
     const s = new URLSearchParams({ q: search, from, to, ...next });
@@ -41,6 +50,13 @@ export function PersonaList({
         { key: "email", label: "Email" },
         { key: "preferred_language", label: "Language" },
         { key: "presenting_concern", label: "Presenting concern" },
+        { key: "background", label: "Background" },
+        { key: "referral_source", label: "Found us via" },
+        { key: "address", label: "Address" },
+        { key: "area", label: "Area" },
+        { key: "education", label: "Education" },
+        { key: "occupation", label: "Occupation" },
+        { key: "intake_completed_at", label: "Intake taken" },
         { key: "notes", label: "Notes" },
         { key: "created_at", label: "Added" },
       ]),
@@ -52,13 +68,20 @@ export function PersonaList({
       <div className="mb-6">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Persona</h1>
         <p className="text-[13px] text-muted mt-0.5">
-          The client intake form — what each person is seeking help with.
+          The client intake form — background, concern and how they found the
+          clinic. Address, area, education and occupation are taken once, on
+          the first visit.
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3 mb-5">
+      <div className="grid sm:grid-cols-4 gap-3 mb-5">
         <Stat label="Clients" value={String(clients.length)} sub={`${from} to ${to}`} />
-        <Stat label="Persona filled" value={String(filled)} sub={`${clients.length - filled} outstanding`} />
+        <Stat label="Complete" value={String(filled)} sub={`${clients.length - filled} outstanding`} />
+        <Stat
+          label="First visit due"
+          value={String(firstVisitDue)}
+          sub="Details not yet taken"
+        />
         <Stat
           label="Completion"
           value={clients.length ? `${Math.round((filled / clients.length) * 100)}%` : "—"}
@@ -76,14 +99,12 @@ export function PersonaList({
             className={`${fieldClass} mt-1`}
           />
         </label>
-        <label className="text-[12px] text-muted">
-          From
-          <input type="date" value={from} onChange={(e) => go({ from: e.target.value })} className={`${fieldClass} mt-1`} />
-        </label>
-        <label className="text-[12px] text-muted">
-          To
-          <input type="date" value={to} onChange={(e) => go({ to: e.target.value })} className={`${fieldClass} mt-1`} />
-        </label>
+        <div className="w-52">
+          <DateField label="From" value={from} max={to} onChange={(v) => go({ from: v })} />
+        </div>
+        <div className="w-52">
+          <DateField label="To" value={to} min={from} onChange={(v) => go({ to: v })} />
+        </div>
         <Button variant="secondary" onClick={() => go({ q: search })}>Search</Button>
         {canExport && (
           <Button variant="secondary" onClick={exportCsv} disabled={clients.length === 0}>
@@ -98,7 +119,9 @@ export function PersonaList({
           <EmptyState title="Nobody matches" description="Widen the dates or clear the search." />
         ) : (
           <ul className="divide-y divide-[var(--border)]">
-            {clients.map((c) => (
+            {clients.map((c) => {
+              const state = personaState(c);
+              return (
               <li key={c.id} className="px-5 py-4">
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="min-w-0 flex-1">
@@ -113,12 +136,34 @@ export function PersonaList({
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
+
                     {c.presenting_concern ? (
                       <p className="text-[13px] text-muted mt-1.5 leading-relaxed">
                         {c.presenting_concern}
                       </p>
                     ) : (
-                      <p className="mt-1.5"><Pill>Persona not filled</Pill></p>
+                      <p className="mt-1.5"><Pill>No concern recorded</Pill></p>
+                    )}
+
+                    {/* The once-only facts, shown only where they exist —
+                        an empty row of labels tells nobody anything. */}
+                    {(c.area || c.occupation || c.education || c.referral_source) && (
+                      <p className="text-[12px] text-faint mt-1.5">
+                        {[
+                          c.area,
+                          c.occupation,
+                          c.education,
+                          c.referral_source ? `via ${c.referral_source}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+
+                    {state.isFirstVisit && (
+                      <p className="mt-1.5">
+                        <Pill>First visit — details not taken</Pill>
+                      </p>
                     )}
                   </div>
                   <span className="text-[12px] text-faint shrink-0 tabular-nums">
@@ -128,7 +173,8 @@ export function PersonaList({
                   </span>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </Card>

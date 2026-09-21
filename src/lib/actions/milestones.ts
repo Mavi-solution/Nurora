@@ -296,6 +296,13 @@ export async function savePersona(
     preferredLanguage?: string | null;
     gender?: string | null;
     notes?: string | null;
+    /* --- the intake form (see business/persona.ts) --- */
+    background?: string | null;
+    referralSource?: string | null;
+    address?: string | null;
+    area?: string | null;
+    education?: string | null;
+    occupation?: string | null;
   },
 ) {
   const ctx = await ownsOrAdmin(appointmentId);
@@ -315,6 +322,12 @@ export async function savePersona(
       preferredLanguage: z.string().trim().max(60).optional().nullable(),
       gender: z.string().trim().max(40).optional().nullable(),
       notes: z.string().trim().max(4000).optional().nullable(),
+      background: z.string().trim().max(4000).optional().nullable(),
+      referralSource: z.string().trim().max(200).optional().nullable(),
+      address: z.string().trim().max(400).optional().nullable(),
+      area: z.string().trim().max(120).optional().nullable(),
+      education: z.string().trim().max(200).optional().nullable(),
+      occupation: z.string().trim().max(200).optional().nullable(),
     })
     .safeParse(input);
 
@@ -328,8 +341,40 @@ export async function savePersona(
   if (v.preferredLanguage) patch.preferred_language = v.preferredLanguage;
   if (v.gender) patch.gender = v.gender;
   if (v.notes) patch.notes = v.notes;
+  if (v.background) patch.background = v.background;
+  if (v.referralSource) patch.referral_source = v.referralSource;
+  if (v.address) patch.address = v.address;
+  if (v.area) patch.area = v.area;
+  if (v.education) patch.education = v.education;
+  if (v.occupation) patch.occupation = v.occupation;
 
-  if (Object.keys(patch).length > 0) {
+  /*
+   * Stamp the once-only half as taken the moment any of it is answered.
+   *
+   * Not "all four are filled": some genuinely do not apply — a client
+   * who is not working has no occupation — and a form that kept asking
+   * would teach the counsellor to skip past it. Answering any of them
+   * is the counsellor saying they sat down and went through this, which
+   * is what the follow-up form needs to know.
+   */
+  const tookOnceOnly = Boolean(v.address || v.area || v.education || v.occupation);
+
+  if (Object.keys(patch).length > 0 || tookOnceOnly) {
+    if (tookOnceOnly) {
+      const { data: existing } = await ctx.supabase
+        .from("clients")
+        .select("intake_completed_at")
+        .eq("id", appt.client_id)
+        .maybeSingle();
+
+      // Kept as the date it was FIRST taken; re-answering later is a
+      // correction, not a new intake.
+      if (!existing?.intake_completed_at) {
+        patch.intake_completed_at = new Date().toISOString();
+        patch.intake_completed_by = ctx.profile.id;
+      }
+    }
+
     const { error } = await ctx.supabase
       .from("clients")
       .update(patch)
@@ -347,5 +392,33 @@ export async function savePersona(
   revalidatePath("/schedule");
   revalidatePath(`/appointments/${appointmentId}`);
   revalidatePath(`/clients/${appt.client_id}`);
+  revalidatePath("/persona");
   return { ok: true as const };
+}
+
+/**
+ * The client's Persona, fetched when the form is opened.
+ *
+ * Deliberately NOT embedded in the schedule query. The intake is free
+ * text — a background can run to a couple of thousand characters — and
+ * embedding it would pull every client's on every date click, to
+ * prefill a dialog that is usually not opened. One small read at the
+ * moment it is needed is cheaper than twenty that are not.
+ */
+export async function loadPersona(clientId: string) {
+  await requireStaffProfile();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("clients")
+    .select(
+      "background, presenting_concern, referral_source, preferred_language, address, area, education, occupation, intake_completed_at",
+    )
+    .eq("id", clientId)
+    .maybeSingle();
+
+  if (error) return fail(describeDbError(error.message, error.code));
+  if (!data) return fail("That client no longer exists.");
+
+  return { ok: true as const, data };
 }

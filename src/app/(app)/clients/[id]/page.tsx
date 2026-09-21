@@ -6,6 +6,7 @@ import { formatDateTime, formatDuration, formatMoney } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import type { Appointment, Client, Invoice } from "@/lib/types";
 import { ClientEditor } from "./client-editor";
+import { PersonaCard } from "./persona-card";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,8 @@ export default async function ClientPage({
             </ul>
           )}
         </Card>
+
+        <PersonaCard client={client} />
 
         <ClientEditor
           client={client}

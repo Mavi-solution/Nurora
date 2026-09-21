@@ -908,6 +908,7 @@ function AppointmentLine({
             appointmentId={appointment.id}
             appointment={appointment}
             canEdit={canRun}
+            clientId={appointment.client_id}
           />
         </div>
       )}

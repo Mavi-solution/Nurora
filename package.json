@@ -35,7 +35,9 @@
     "test:qa4": "supabase db reset && node scripts/check-qa-round4.mjs",
     "test:phone": "node scripts/check-phone-input.mjs",
     "test:qa5": "supabase db reset && node scripts/check-qa-round5.mjs",
-    "test:twilio": "node scripts/check-twilio-env.mjs"
+    "test:twilio": "node scripts/check-twilio-env.mjs",
+    "test:persona": "node scripts/check-persona.mjs",
+    "test:qa6": "supabase db reset && node scripts/check-qa-round6.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

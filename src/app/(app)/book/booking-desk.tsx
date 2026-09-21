@@ -217,6 +217,42 @@ export function BookingDesk({
   }, [step, date, specialismId, language, counsellorId]);
 
   /*
+   * Only counsellors who can actually take this caller.
+   *
+   * The dropdown listed the whole roster whatever was chosen above, so
+   * picking "Anxiety" and then a counsellor who does not treat anxiety
+   * produced an empty slot list and no explanation. The specialism and
+   * language filters already narrowed the SLOTS; they now narrow the
+   * names too, which is where the desk is actually making the choice.
+   *
+   * Matched on the specialism's name rather than its id because that is
+   * what the roster carries — one join, done once, in the reference
+   * loader.
+   */
+  const chosenSpecialism = specialisms.find((s) => s.id === specialismId)?.name;
+
+  const matchingCounsellors = counsellors.filter((c) => {
+    if (chosenSpecialism && !(c.specialisms ?? []).includes(chosenSpecialism)) {
+      return false;
+    }
+    if (language && !(c.languages ?? []).includes(language)) return false;
+    return true;
+  });
+
+  /*
+   * A counsellor already chosen — carried over from the client's own
+   * record, usually — has to let go when the filters rule them out.
+   * Leaving them selected would silently contradict the filter above
+   * it and search for slots nobody can offer.
+   */
+  useEffect(() => {
+    if (!counsellorId) return;
+    if (matchingCounsellors.some((c) => c.id === counsellorId)) return;
+    setCounsellorId("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counsellorId, specialismId, language]);
+
+  /*
    * The same filters that drive the slot list drive the calendar's
    * colours, so the month a desk is looking at answers the question
    * they are actually asking — "when can THIS caller be seen?" — rather
@@ -480,14 +516,27 @@ export function BookingDesk({
                 </select>
               </Field>
 
-              <Field label="Counsellor">
+              <Field
+                label="Counsellor"
+                hint={
+                  chosenSpecialism || language
+                    ? `${matchingCounsellors.length} of ${counsellors.length} match`
+                    : undefined
+                }
+              >
                 <select
                   value={counsellorId}
                   onChange={(e) => setCounsellorId(e.target.value)}
+                  aria-label="Counsellor"
                   className={fieldClass}
+                  disabled={matchingCounsellors.length === 0}
                 >
-                  <option value="">Anyone available</option>
-                  {counsellors.map((c) => (
+                  <option value="">
+                    {matchingCounsellors.length === 0
+                      ? "Nobody covers that combination"
+                      : "Anyone available"}
+                  </option>
+                  {matchingCounsellors.map((c) => (
                     <option key={c.id} value={c.id}>
                       {describeCounsellor(c)}
                     </option>
@@ -635,14 +684,29 @@ export function BookingDesk({
         <div className="space-y-4">
           <Card>
             <div className="px-5 py-5 space-y-4">
+              {/*
+                One line per detail, and "Not recorded" rather than
+                silence when one is absent.
+                
+                Joining them into a single Contact line meant a missing
+                number simply vanished — the desk saw a tidy summary and
+                no sign that the reminder had nowhere to go. Age was not
+                shown at all.
+              */}
               <Summary label="Client" value={client.full_name} />
+              <Summary label="Phone" value={client.phone || "Not recorded"} />
+              <Summary label="Email" value={client.email || "Not recorded"} />
               <Summary
-                label="Contact"
-                value={[client.phone, client.email].filter(Boolean).join(" · ") || "—"}
+                label="Age"
+                value={client.age != null ? `${client.age}` : "Not recorded"}
               />
-              {client.presenting_concern && (
-                <Summary label="Concern" value={client.presenting_concern} />
+              {client.preferred_language && (
+                <Summary label="Language" value={client.preferred_language} />
               )}
+              <Summary
+                label="Concern"
+                value={client.presenting_concern || "Not recorded"}
+              />
               <Summary label="Counsellor" value={slot.counsellorName} />
               <Summary
                 label="When"

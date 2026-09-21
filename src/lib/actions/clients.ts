@@ -267,3 +267,87 @@ export async function findClients(term: string) {
   if (error) return fail(describeDbError(error.message, error.code));
   return { ok: true as const, data: data ?? [] };
 }
+
+/**
+ * Save a client's Persona from their own record.
+ *
+ * The same intake the session milestone captures, reachable when there
+ * is no session open — a detail corrected over the phone, or an intake
+ * finished after the client has left. Deliberately the same rules:
+ * blanks keep what is on file, and taking any of the once-only details
+ * stamps the intake as done.
+ */
+export async function savePersonaForClient(
+  clientId: string,
+  input: {
+    background?: string | null;
+    presentingConcern?: string | null;
+    referralSource?: string | null;
+    preferredLanguage?: string | null;
+    address?: string | null;
+    area?: string | null;
+    education?: string | null;
+    occupation?: string | null;
+  },
+) {
+  const profile = await requireStaffProfile();
+
+  const parsed = z
+    .object({
+      background: z.string().trim().max(4000).optional().nullable(),
+      presentingConcern: z.string().trim().max(2000).optional().nullable(),
+      referralSource: z.string().trim().max(200).optional().nullable(),
+      preferredLanguage: z.string().trim().max(60).optional().nullable(),
+      address: z.string().trim().max(400).optional().nullable(),
+      area: z.string().trim().max(120).optional().nullable(),
+      education: z.string().trim().max(200).optional().nullable(),
+      occupation: z.string().trim().max(200).optional().nullable(),
+    })
+    .safeParse(input);
+
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+
+  const v = parsed.data;
+  const supabase = await createClient();
+
+  const patch: Record<string, unknown> = {};
+  if (v.background) patch.background = v.background;
+  if (v.presentingConcern) patch.presenting_concern = v.presentingConcern;
+  if (v.referralSource) patch.referral_source = v.referralSource;
+  if (v.preferredLanguage) patch.preferred_language = v.preferredLanguage;
+  if (v.address) patch.address = v.address;
+  if (v.area) patch.area = v.area;
+  if (v.education) patch.education = v.education;
+  if (v.occupation) patch.occupation = v.occupation;
+
+  if (Object.keys(patch).length === 0) return { ok: true as const };
+
+  if (v.address || v.area || v.education || v.occupation) {
+    const { data: existing } = await supabase
+      .from("clients")
+      .select("intake_completed_at")
+      .eq("id", clientId)
+      .maybeSingle();
+
+    if (!existing?.intake_completed_at) {
+      patch.intake_completed_at = new Date().toISOString();
+      patch.intake_completed_by = profile.id;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("clients")
+    .update(patch)
+    .eq("id", clientId)
+    .select("id");
+
+  if (error) return fail(describeDbError(error.message, error.code));
+  if (!data || data.length === 0) {
+    return fail("That Persona could not be saved — you may not have permission.");
+  }
+
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/persona");
+  revalidatePath("/schedule");
+  return { ok: true as const };
+}

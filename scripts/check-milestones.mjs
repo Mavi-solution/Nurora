@@ -128,10 +128,16 @@ try {
 
   step("Step 5 — the Persona writes onto the client record");
   await stepBtn(5).click();
-  await page.waitForTimeout(600);
-  await page.getByPlaceholder(/own words/).fill("Work stress, sleeping badly.");
+  // The Persona is a real intake form now, and it loads what is already
+  // on file before rendering — addressed by label rather than by
+  // placeholder, which is copy and moves.
+  const personaDialog = page.getByRole("dialog", { name: "Fill the Persona" });
+  await personaDialog.waitFor({ timeout: 10000 });
+  const concernField = personaDialog.getByLabel("What they are seeking help with");
+  await concernField.waitFor({ timeout: 15000 });
+  await concernField.fill("Work stress, sleeping badly.");
   // Preferred language is a dropdown now, not free text.
-  await page.getByLabel("Preferred language").selectOption("Tamil");
+  await personaDialog.getByLabel("Preferred language").selectOption("Tamil");
   await page.getByRole("button", { name: "Save Persona" }).click();
   await page.waitForTimeout(2200);
   check("concern saved to the client",

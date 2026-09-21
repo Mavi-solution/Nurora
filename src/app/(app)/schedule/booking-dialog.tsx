@@ -37,13 +37,6 @@ const ATTACHMENTS: { value: AttachmentKind; label: string }[] = [
 
 
 
-const STATUSES = [
-  { value: "scheduled", label: "Scheduled" },
-  { value: "in_progress", label: "In session" },
-  { value: "completed", label: "Completed" },
-  { value: "no_show", label: "No-show" },
-] as const;
-
 /**
  * One dialog, two outcomes.
  *
@@ -98,7 +91,6 @@ export function BookingDialog({
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [advancePaid, setAdvancePaid] = useState(false);
-  const [status, setStatus] = useState<(typeof STATUSES)[number]["value"]>("scheduled");
 
   const [slots, setSlots] = useState<Slot[]>([]);
   /** Why the day has nothing, when the reason is not "it is full". */
@@ -140,7 +132,6 @@ export function BookingDialog({
     setAttachmentNote("");
     setAttachmentFile(null);
     setAdvancePaid(false);
-    setStatus("scheduled");
     setError(null);
   }, [open, defaultCounsellorId, defaultStartsAt, dateKey]);
 
@@ -247,7 +238,12 @@ export function BookingDialog({
         attachment,
         attachmentNote: attachmentNote || null,
         attachmentPath,
-        status: isInterest ? undefined : status,
+        // No status is sent: a booking being CREATED is scheduled, and
+        // the action defaults to that. The dialog used to offer
+        // Completed and No-show, which are things that happen to a
+        // session later, on its own page — offering them at the moment
+        // of booking invited a session to be filed as finished before
+        // anyone had turned up for it.
         advancePaid: isInterest ? undefined : advancePaid,
       });
 
@@ -608,35 +604,21 @@ export function BookingDialog({
 
         {/* ------------------------------------------- booking-only bits */}
         {!isInterest && (
-          <>
-            <fieldset>
-              <legend className="text-[13px] font-medium mb-1.5">Advance payment</legend>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={advancePaid}
-                  onChange={(e) => setAdvancePaid(e.target.checked)}
-                  className="size-4 rounded accent-brand-600"
-                />
-                <span className="text-[13px]">Advance received</span>
-              </label>
-              <p className="text-[12px] text-faint mt-1.5">
-                Mark it paid directly. Uploading proof is not wired up yet.
-              </p>
-            </fieldset>
-
-            <Field label="Status">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as typeof status)}
-                className={fieldClass}
-              >
-                {STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </Field>
-          </>
+          <fieldset>
+            <legend className="text-[13px] font-medium mb-1.5">Advance payment</legend>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={advancePaid}
+                onChange={(e) => setAdvancePaid(e.target.checked)}
+                className="size-4 rounded accent-brand-600"
+              />
+              <span className="text-[13px]">Advance received</span>
+            </label>
+            <p className="text-[12px] text-faint mt-1.5">
+              Mark it paid directly. Uploading proof is not wired up yet.
+            </p>
+          </fieldset>
         )}
       </div>
     </Dialog>

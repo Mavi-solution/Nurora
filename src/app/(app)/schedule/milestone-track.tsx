@@ -1,11 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LANGUAGES, withCurrent } from "@/lib/options";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
+import {
+  PersonaFields,
+  emptyPersonaDraft,
+  type PersonaDraft,
+} from "@/components/persona-fields";
 import { Alert, Button, Field, fieldClass } from "@/components/ui";
 import {
+  loadPersona,
   logNubill,
   prepareClientMessage,
   savePersona,
@@ -28,18 +33,55 @@ export function MilestoneTrack({
   appointmentId,
   appointment,
   canEdit,
+  clientId,
 }: {
   appointmentId: string;
   appointment: MilestoneSource;
   canEdit: boolean;
+  /**
+   * Whose Persona to load when the form is opened. Null for a session
+   * with no client record, where the form simply asks for everything.
+   */
+  clientId?: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<MilestoneKey | null>(null);
   const [nubillText, setNubillText] = useState("");
-  const [concern, setConcern] = useState("");
-  const [language, setLanguage] = useState("");
+  const [persona, setPersona] = useState<PersonaDraft>(() => emptyPersonaDraft());
+  const [personaClient, setPersonaClient] = useState<PersonaClient | null>(null);
+  const [loadingPersona, setLoadingPersona] = useState(false);
+
+  /*
+   * Load what is already on file when the form opens, so a follow-up is
+   * edited rather than retyped — and so the form can tell whether this
+   * is a first visit at all.
+   *
+   * Fetched here rather than embedded in the schedule query: the intake
+   * is free text, and pulling every client's on every date click to
+   * prefill a dialog that is usually not opened is a poor trade.
+   */
+  useEffect(() => {
+    if (open !== "persona" || !clientId) return;
+
+    let cancelled = false;
+    setLoadingPersona(true);
+
+    loadPersona(clientId)
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setPersonaClient(result.data as PersonaClient);
+        setPersona(emptyPersonaDraft(result.data));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPersona(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, clientId]);
   const [waLink, setWaLink] = useState<{
     href: string;
     text: string;
@@ -275,8 +317,14 @@ export function MilestoneTrack({
               onClick={() =>
                 run(() =>
                   savePersona(appointmentId, {
-                    presentingConcern: concern || null,
-                    preferredLanguage: language || null,
+                    background: persona.background || null,
+                    presentingConcern: persona.presentingConcern || null,
+                    referralSource: persona.referralSource || null,
+                    preferredLanguage: persona.preferredLanguage || null,
+                    address: persona.address || null,
+                    area: persona.area || null,
+                    education: persona.education || null,
+                    occupation: persona.occupation || null,
                   }),
                 )
               }
@@ -286,37 +334,44 @@ export function MilestoneTrack({
           </>
         }
       >
-        <div className="space-y-4">
-          <p className="text-[13px] text-muted leading-relaxed">
-            Saved onto the client&apos;s record. Fields left blank keep whatever
-            is already on file rather than clearing it.
+        {loadingPersona ? (
+          <p className="text-[13px] text-muted py-6 text-center">
+            Loading what is already on file…
           </p>
-          <Field label="What they are seeking help with">
-            <textarea
-              value={concern}
-              onChange={(e) => setConcern(e.target.value)}
-              rows={4}
-              className={`${fieldClass} resize-y`}
-              placeholder="In the client's own words…"
-            />
-          </Field>
-          <Field label="Preferred language">
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className={fieldClass}
-            >
-              <option value="">No preference</option>
-              {withCurrent(LANGUAGES, language).map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
-          </Field>
-        </div>
+        ) : (
+          <PersonaFields
+            // Remounted per client so the once-only block re-decides
+            // whether to open rather than keeping the last client's
+            // answer to that question.
+            key={clientId ?? "no-client"}
+            client={personaClient ?? BLANK_PERSONA_CLIENT}
+            draft={persona}
+            onChange={setPersona}
+          />
+        )}
       </Dialog>
     </div>
   );
 }
+
+/** What the Persona form needs to know about the client. */
+export type PersonaClient = Parameters<typeof PersonaFields>[0]["client"];
+
+/**
+ * A session with no client record attached. Every field reads as blank,
+ * so the form asks for everything — which is the right behaviour: there
+ * is nothing on file to skip.
+ */
+const BLANK_PERSONA_CLIENT: PersonaClient = {
+  background: null,
+  presenting_concern: null,
+  referral_source: null,
+  address: null,
+  area: null,
+  education: null,
+  occupation: null,
+  intake_completed_at: null,
+};
 
 function StepIcon({ step }: { step: MilestoneKey }) {
   const p = {

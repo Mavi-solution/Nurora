@@ -85,6 +85,19 @@ export type Client = {
   preferred_language: string | null;
   /** What the caller said they need help with, in their own words. */
   presenting_concern: string | null;
+
+  /* ---------------------------------------------- the Persona intake
+   * Asked at every intake. */
+  background: string | null;
+  referral_source: string | null;
+  /* Asked once, then carried forward — see business/persona.ts. */
+  address: string | null;
+  area: string | null;
+  education: string | null;
+  occupation: string | null;
+  /** Null until the once-only half has been taken. */
+  intake_completed_at: string | null;
+  intake_completed_by: string | null;
   preferred_specialism_id: string | null;
   is_active: boolean;
   created_by: string | null;
