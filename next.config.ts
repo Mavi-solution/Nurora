@@ -1,12 +1,12 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "lh3.googleusercontent.com" },
-      { protocol: "https", hostname: "*.supabase.co" },
-    ],
-  },
-};
+/*
+ * Nothing to configure.
+ *
+ * The app is one client component holding its own data in the browser —
+ * no remote images, no server routes, no database. The previous config's
+ * image hosts existed for Supabase avatars, which no longer exist.
+ */
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
