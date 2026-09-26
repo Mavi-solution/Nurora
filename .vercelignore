@@ -1,18 +1,2 @@
-# Paths are ANCHORED with a leading slash on purpose.
-#
-# .vercelignore uses .gitignore semantics, so a bare `supabase` matches a
-# directory of that name at ANY depth — which silently stripped
-# src/lib/supabase/ from the upload and broke the build with
-# "Can't resolve '@/lib/supabase/client'". Only the repo-root
-# directories are meant to be excluded.
-
-# Playwright suites and their artefacts — never run on Vercel.
-/scripts
-/screenshots
-
-# The local Supabase stack. Migrations are applied to the hosted project
-# with the Supabase CLI, not by the Vercel build.
-/supabase
-
 # Local notes and dumps
 *.log
