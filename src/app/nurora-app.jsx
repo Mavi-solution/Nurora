@@ -348,11 +348,6 @@ function seed() {
       ],
       attachmentTypes: ["Recording", "Voice note", "Note"],
       attachmentRetentionDays: 30,
-      // Attendance geofence — Admin sets the clinic's own coordinates once;
-      // check-in requires being within checkInRadiusM of it, check-out is
-      // more lenient (checkOutRadiusM) since someone might step out for a
-      // client visit before heading home. Left null until Admin configures it.
-      clinicLat: null, clinicLng: null, checkInRadiusM: 100, checkOutRadiusM: 500,
       // NuLancer freelancers get paid per completed session, not a salary —
       // rate depends on whether it was an Individual or Couple session.
       nulancerRateIndividual: 300,
@@ -1854,38 +1849,10 @@ function attendanceToday(data, counsellorId) {
   return (data.attendance || []).find((a) => a.counsellorId === counsellorId && a.date === today) || null;
 }
 
-// Best-effort one-shot location read. Browsers require the person to grant
-// permission and there's no reliable way to capture location silently in
-// the background from a web app, so this always happens at the moment of
-// tapping the toggle — that's the closest a web app can get to "automatic".
-// Resolves to null (never rejects) if location isn't available, so the
-// caller can fall back to logging just the time.
-function getLocationOnce(timeoutMs = 8000) {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
-    let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    const timer = setTimeout(() => finish(null), timeoutMs);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { clearTimeout(timer); finish({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
-      () => { clearTimeout(timer); finish(null); },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
-    );
-  });
-}
+// Attendance records saved before check-in stopped reading location still
+// carry coordinates, so the Attendance screen can still link them out to a
+// map. Nothing writes new ones.
 function mapsLink(lat, lng) { return `https://maps.google.com/?q=${lat},${lng}`; }
-
-// Great-circle distance between two lat/lng points, in meters — used to
-// enforce the check-in/check-out geofence around the clinic.
-function distanceMeters(lat1, lng1, lat2, lng2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-function fmtMeters(m) { return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`; }
 
 /* ------------------------------------------------------------ nubills */
 // Nubills reads a pasted text feed from the separate billing web app (the
@@ -2160,52 +2127,34 @@ function HolidaySheet({ open, onClose, act, defaultDate }) {
 
 /* ------------------------------------------------------------ attendance */
 // The "cute toggle capsule" on the main page — check in/out for the day.
-// Tapping it is the closest a web app can get to "automatic": it reads the
-// device's location right at that moment and stamps the time, falling back
-// to just the time if location isn't available or permission is denied.
+// Tapping it stamps the time and nothing else. It used to read the device's
+// location first and refuse a check-in taken outside a radius of the clinic,
+// which meant every tap waited on the GPS ("Locating…") and could be turned
+// down by a permission prompt or a bad fix. The time is the thing that
+// matters here, so it is taken directly.
 function AttendanceToggle({ data, act, user }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const rec = attendanceToday(data, user.counsellorId);
   const state = !rec ? "out" : !rec.outAt ? "in" : "done";
-  const s = data.settings;
-  const clinicSet = s.clinicLat != null && s.clinicLng != null;
 
-  const handleTap = async () => {
-    if (state === "done" || busy) return;
-    setError("");
-    setBusy(true);
-    const loc = await getLocationOnce();
-    // Only enforced when both the clinic's location is configured AND this
-    // device's location was actually readable — if location capture fails,
-    // this falls through to the same "logged without verification" path
-    // used elsewhere, rather than locking someone out over a flaky GPS.
-    if (loc && clinicSet) {
-      const radius = state === "out" ? (s.checkInRadiusM ?? 100) : (s.checkOutRadiusM ?? 500);
-      const dist = distanceMeters(loc.lat, loc.lng, s.clinicLat, s.clinicLng);
-      if (dist > radius) {
-        setBusy(false);
-        setError(`You're ${fmtMeters(dist)} from the clinic — ${state === "out" ? "check-in" : "check-out"} needs to be within ${radius}m.`);
-        return;
-      }
-    }
-    if (state === "out") act.recordCheckIn(user.counsellorId, loc);
-    else act.recordCheckOut(user.counsellorId, loc);
-    setBusy(false);
+  const handleTap = () => {
+    if (state === "done") return;
+    // null: recorded without a location fix, which is what inAuto/outAuto
+    // already mean everywhere the attendance record is read back.
+    if (state === "out") act.recordCheckIn(user.counsellorId, null);
+    else act.recordCheckOut(user.counsellorId, null);
   };
 
-  const label = busy ? "Locating…"
-    : state === "out" ? "Tap to check In"
+  const label = state === "out" ? "Tap to check In"
     : state === "in" ? `In since ${hm(rec.inAt)}`
     : `In ${hm(rec.inAt)} · Out ${hm(rec.outAt)}`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "2px 16px 14px" }}>
-      <button onClick={handleTap} disabled={state === "done" || busy} style={{
+      <button onClick={handleTap} disabled={state === "done"} style={{
         display: "flex", alignItems: "center", gap: 10, borderRadius: 999, padding: "6px 6px 6px 16px",
         background: state === "in" ? "linear-gradient(135deg, #7fb88f 0%, #7fd6c9 100%)" : "#fff",
         border: `1px solid ${state === "in" ? "transparent" : C.line}`,
-        cursor: state === "done" || busy ? "default" : "pointer", fontFamily: FONT,
+        cursor: state === "done" ? "default" : "pointer", fontFamily: FONT,
         boxShadow: state === "in" ? "0 4px 14px rgba(127,182,143,0.35)" : "none",
         transition: "background .3s ease, box-shadow .3s ease",
       }}>
@@ -2228,7 +2177,6 @@ function AttendanceToggle({ data, act, user }) {
           </span>
         </span>
       </button>
-      {error && <div style={{ fontSize: 11.5, color: "#b42318", marginTop: 8, textAlign: "center", maxWidth: 300 }}>{error}</div>}
     </div>
   );
 }
@@ -7458,40 +7406,10 @@ function SettingsScreen({ data, act }) {
         </Field>
       </div>
 
-      <div style={{ fontSize: 13, color: C.soft, margin: "10px 0 8px" }}>Attendance geofence</div>
-      <div style={{ fontSize: 12, color: C.faint, marginBottom: 14 }}>
-        Check-in and check-out require being within this distance of the clinic. Set the clinic's location once from here — ideally while standing at the clinic itself.
-      </div>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, padding: "13px 15px", marginBottom: 16 }}>
-        {s.clinicLat != null && s.clinicLng != null ? (
-          <>
-            <Row label="Clinic location" value={`${s.clinicLat.toFixed(5)}, ${s.clinicLng.toFixed(5)}`} />
-            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-              <Btn size="sm" onClick={async () => {
-                const loc = await getLocationOnce();
-                if (loc) setS({ ...s, clinicLat: loc.lat, clinicLng: loc.lng });
-              }}>Update to current location</Btn>
-              <Btn size="sm" kind="danger" onClick={() => setS({ ...s, clinicLat: null, clinicLng: null })}>Clear</Btn>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 13, color: C.soft, marginBottom: 12 }}>No clinic location set yet — check-in/out won't be distance-restricted until this is configured.</div>
-            <Btn size="sm" kind="solid" onClick={async () => {
-              const loc = await getLocationOnce();
-              if (loc) setS({ ...s, clinicLat: loc.lat, clinicLng: loc.lng });
-            }} icon={<MapPin size={14} strokeWidth={1.6} />}>Use current location</Btn>
-          </>
-        )}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-        <Field label="Check-in radius (m)">
-          <Input inputMode="numeric" value={s.checkInRadiusM} onChange={(e) => setS({ ...s, checkInRadiusM: num(e.target.value) })} />
-        </Field>
-        <Field label="Check-out radius (m)">
-          <Input inputMode="numeric" value={s.checkOutRadiusM} onChange={(e) => setS({ ...s, checkOutRadiusM: num(e.target.value) })} />
-        </Field>
-      </div>
+      {/* The Attendance geofence block lived here. Check-in no longer reads
+          the device's location, so there was nothing left for a clinic
+          location or a radius to govern — the settings only described
+          behaviour that had been removed. */}
 
       <div style={{ fontSize: 13, color: C.soft, margin: "10px 0 8px" }}>Personalize message template</div>
       <div style={{ fontSize: 12, color: C.faint, marginBottom: 10 }}>
@@ -8193,10 +8111,6 @@ export default function App() {
           advanceTierAbove: Number(s.advanceTierAbove) || 0,
           nulancerRateIndividual: Number(s.nulancerRateIndividual) || 0,
           nulancerRateCouple: Number(s.nulancerRateCouple) || 0,
-          clinicLat: s.clinicLat == null ? null : Number(s.clinicLat),
-          clinicLng: s.clinicLng == null ? null : Number(s.clinicLng),
-          checkInRadiusM: Number(s.checkInRadiusM) || 100,
-          checkOutRadiusM: Number(s.checkOutRadiusM) || 500,
           services: (s.services || []).map((sv) => ({ name: sv.name, value: Number(sv.value) || 0 })),
         },
         messages: newTagMsgs.length ? [...(data.messages || []), ...newTagMsgs] : data.messages,
