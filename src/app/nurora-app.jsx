@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import NuroraLogin from "./nurora-login";
+import { getSupabase } from "@/lib/supabase";
 
 // Runs the instant this script loads — before React mounts or paints anything —
 // because a viewport fix applied only after first paint is often too late for
@@ -52,7 +54,7 @@ import {
   Menu, Bell, Calendar, Clock, Play, Square, ChevronDown, ChevronUp, ChevronRight,
   ChevronLeft, Filter, Users, FileText, MoreHorizontal, Plus, X, Check, ArrowLeft,
   LogOut, Settings as SettingsIcon, BarChart3, CalendarOff, Trash2, Download, Share2, Search,
-  Mic, ArrowUp, ScanFace, ArrowRight, Headphones, Phone, ThumbsUp, Pencil, User, Tag, Hash, CalendarClock, Flag, Baby,
+  Mic, ArrowUp, ArrowRight, Headphones, Phone, ThumbsUp, Pencil, User, Tag, Hash, CalendarClock, Flag, Baby,
   Send, Copy, MessageCircle, MapPin, FileCheck, Link as LinkIcon, UserCheck, Star, Zap, Shield,
 } from "lucide-react";
 
@@ -75,50 +77,10 @@ const pad = (n) => String(n).padStart(2, "0");
 const uid = (p) => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
 /* ---------------------------------------------------- biometric sign-in */
-// Uses the device's own Face ID / Touch ID / fingerprint sensor via the
-// browser's WebAuthn platform authenticator. There's no server here to
-// issue or verify signed challenges against, so this isn't a full
-// cryptographic auth system — it's used as a local "prove it's still you"
-// gate: register once, and the browser will only satisfy future requests
-// after a real biometric check on this device.
-async function biometricSupported() {
-  try {
-    if (!window.PublicKeyCredential || !navigator.credentials) return false;
-    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-  } catch (e) { return false; }
-}
-function b64urlToBuffer(b64url) {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-  const str = atob(b64 + pad);
-  const bytes = new Uint8Array(str.length);
-  for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
-  return bytes.buffer;
-}
-async function registerBiometric(identityKey, displayName) {
-  const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const userId = crypto.getRandomValues(new Uint8Array(16));
-  const cred = await navigator.credentials.create({
-    publicKey: {
-      challenge, rp: { name: "Nurora" },
-      user: { id: userId, name: identityKey, displayName },
-      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-      timeout: 60000, attestation: "none",
-    },
-  });
-  return cred.id;
-}
-async function verifyBiometric(credId) {
-  const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const assertion = await navigator.credentials.get({
-    publicKey: {
-      challenge, allowCredentials: [{ id: b64urlToBuffer(credId), type: "public-key" }],
-      userVerification: "required", timeout: 60000,
-    },
-  });
-  return !!assertion;
-}
+// Face ID / Touch ID / fingerprint now belongs to the account layer, which
+// arms it against the signed-in email rather than a local PIN identity.
+// See nurora-login.jsx.
+
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const CHAT_TAGS = ["Coffee meet", "High priority", "Immediately", "Dinner", "WAY - Where are You", "Awesome", "Have Concern"];
@@ -167,6 +129,88 @@ const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 /* --------------------------------------------------------------- storage */
 const KEY = "nurora:data:v1";
 const SKEY = "nurora:session:v1";
+
+/* ------------------------------------------ account -> app identity */
+/*
+ * Two different things, joined on email address.
+ *
+ * The ACCOUNT is what Supabase knows: who signed up, their name, and
+ * whether they are an admin. The COUNSELLOR RECORD is what the schedule
+ * needs: slots, week offs, pay rates, permissions. Someone signing in for
+ * the first time has the first and not the second, so one is created for
+ * them — otherwise they'd land on a schedule with no lane of their own
+ * and no way to make one.
+ *
+ * Note the roster still lives in this browser. Signing in on a second
+ * device authenticates the same account but starts from a fresh local
+ * roster; moving that data to the server is the next piece of work, not
+ * something this join pretends to have solved.
+ */
+const DEFAULT_ACCOUNT_PERMISSIONS = {
+  attendance: true, nubills: true, personas: true, bric: true,
+  reviews: true, followups: true, mysummary: true, weekoffs: true,
+};
+
+function counsellorFromAccount(name, email, isNuLancer) {
+  const probFrom = ymd(new Date());
+  const probTo = new Date();
+  probTo.setDate(probTo.getDate() + 90);
+  return {
+    id: uid("c"), name, email,
+    role: isNuLancer ? "NuLancer" : "Counsellor",
+    workStart: "09:00", workEnd: "20:00",
+    slots: [], weekOffDates: {}, pin: "1234", active: true, isNuLancer,
+    benefitsEnabled: false, benefits: [],
+    accountStatus: "tpin", tpin: "1234", mpin: null,
+    probationFrom: probFrom, probationTo: ymd(probTo),
+    personalPhone: "", bloodGroup: "", aadharImage: null, businessPhone: "",
+    dob: "", dateOfJoining: probFrom,
+    photo: null, agreementSignedAt: null, signatureDataUrl: null,
+    frontPageTextOverride: null, agreementAgreeTextOverride: null,
+    permissions: { ...DEFAULT_ACCOUNT_PERMISSIONS },
+    isOwner: false, workHoursEnabled: true,
+  };
+}
+
+async function resolveIdentity(session, data) {
+  const supabase = getSupabase();
+  const authUser = session.user || {};
+  const email = (authUser.email || "").toLowerCase();
+
+  let profile = null;
+  if (supabase) {
+    // A missing or unreadable profile row is not fatal — the account is
+    // already proven, so fall back to what the token itself carries.
+    const { data: rows } = await supabase
+      .from("profiles")
+      .select("full_name, is_admin, is_nulancer")
+      .eq("id", authUser.id)
+      .limit(1);
+    profile = rows && rows[0] ? rows[0] : null;
+  }
+
+  const name = String(
+    profile?.full_name || authUser.user_metadata?.full_name || email.split("@")[0] || "Counsellor"
+  ).trim();
+
+  if (profile?.is_admin) return { user: { role: "admin", name, email }, patch: null };
+
+  const existing = (data.counsellors || []).find(
+    (c) => (c.email || "").toLowerCase() === email && email !== ""
+  );
+  if (existing) {
+    return {
+      user: { role: "resource", name: existing.name, counsellorId: existing.id, isNuLancer: !!existing.isNuLancer, email },
+      patch: null,
+    };
+  }
+
+  const created = counsellorFromAccount(name, email, !!profile?.is_nulancer);
+  return {
+    user: { role: "resource", name: created.name, counsellorId: created.id, isNuLancer: created.isNuLancer, email },
+    patch: (d) => ({ ...d, counsellors: [...d.counsellors, created] }),
+  };
+}
 let memory = {};
 const store = {
   // Tries window.storage first (Claude's own artifact-preview runtime), then
@@ -286,7 +330,7 @@ function seed() {
   // --- end demo data ---
   return {
     counsellors, clients, appointments,
-    sessions: [], invoices: [], leaves: [], notifications: [], messages: [], webauthn: {}, interests: [], holidays: [], attendance: [], bills: [], reviews,
+    sessions: [], invoices: [], leaves: [], notifications: [], messages: [], interests: [], holidays: [], attendance: [], bills: [], reviews,
     invoiceSeq: 1,
     settings: {
       basePrice: 2000, includedMinutes: 120, extensionMinutes: 30, extensionPrice: 500,
@@ -297,7 +341,6 @@ function seed() {
       // throughout development. Set a real Admin PIN from Settings on
       // first login.
       invoicePrefix: "NUR", notificationSound: true, adminPin: "1234", designerUrl: "",
-      loginQuoteGrey: "Always believe something wonderful", loginQuoteBlack: "About to Happen.",
       // Signup agreement: page 1 is this personalized text template
       // ({{name}} gets substituted per counsellor), page 2 is a PDF that
       // differs by counsellor type (Resource vs NuLancer), and
@@ -348,11 +391,6 @@ function seed() {
       ],
       attachmentTypes: ["Recording", "Voice note", "Note"],
       attachmentRetentionDays: 30,
-      // Attendance geofence — Admin sets the clinic's own coordinates once;
-      // check-in requires being within checkInRadiusM of it, check-out is
-      // more lenient (checkOutRadiusM) since someone might step out for a
-      // client visit before heading home. Left null until Admin configures it.
-      clinicLat: null, clinicLng: null, checkInRadiusM: 100, checkOutRadiusM: 500,
       // NuLancer freelancers get paid per completed session, not a salary —
       // rate depends on whether it was an Individual or Couple session.
       nulancerRateIndividual: 300,
@@ -1359,267 +1397,12 @@ function MonthCalendar({ selected, onSelect, markedDates, scheduleDotStatus = EM
   );
 }
 
-/* ------------------------------------------------------------- login */
-function Login({ data, onLogin, saveCredential, updateQuote }) {
-  const [mode, setMode] = useState("resource");
-  const [who, setWho] = useState("");
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
-  const [bioReady, setBioReady] = useState(false);
-  const [bioBusy, setBioBusy] = useState(false);
-  const [pending, setPending] = useState(null); // {key, user} — verified, deciding on Face ID setup
-  const [quoteEditor, setQuoteEditor] = useState(false);
-  const [quoteAuthed, setQuoteAuthed] = useState(false);
-  const [quoteAuthPin, setQuoteAuthPin] = useState("");
-  const [quoteAuthErr, setQuoteAuthErr] = useState("");
-  const [editGrey, setEditGrey] = useState("");
-  const [editBlack, setEditBlack] = useState("");
-
-  useEffect(() => { biometricSupported().then(setBioReady); }, []);
-
-  useEffect(() => {
-    if (!document.querySelector('link[data-nurora="inter"]')) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = "https://fonts.googleapis.com/css2?family=Inter:wght@500;800;900&display=swap";
-      link.setAttribute("data-nurora", "inter");
-      document.head.appendChild(link);
-    }
-  }, []);
-
-  const identityKey = mode === "admin" ? "admin" : who;
-  const selectedCounsellor = mode === "resource" ? data.counsellors.find((x) => x.id === who) : null;
-  const hasCredential = identityKey && !!(data.webauthn || {})[identityKey] && (mode === "admin" || (selectedCounsellor && (selectedCounsellor.isOwner || selectedCounsellor.accountStatus !== "tpin")));
-
-  const submit = () => {
-    if (mode === "admin") {
-      if (pin !== data.settings.adminPin) return setErr("That PIN doesn't match. Try again.");
-      finishOrOfferBiometric("admin", { role: "admin", name: "Admin" }, true);
-    } else {
-      const c = data.counsellors.find((x) => x.id === who);
-      if (!c) return setErr("Choose your name to continue.");
-      if (c.isOwner) {
-        if (pin !== c.pin) return setErr("That PIN doesn't match. Try again.");
-        finishOrOfferBiometric(c.id, { role: "resource", name: c.name, counsellorId: c.id, isNuLancer: !!c.isNuLancer }, true);
-        return;
-      }
-      const isMpin = c.accountStatus === "mpin" && c.mpin;
-      if (isMpin) {
-        if (pin !== c.mpin) return setErr("That PIN doesn't match. Try again.");
-      } else {
-        const today = ymd(new Date());
-        if (c.probationTo && today > c.probationTo) {
-          return setErr("Your temporary access has expired. Ask Admin for a new TPIN, or complete signup.");
-        }
-        // Older accounts saved before TPIN existed only have the original
-        // `pin` field — fall back to it rather than locking them out.
-        const effectivePin = c.tpin || c.pin;
-        if (pin !== effectivePin) return setErr("That PIN doesn't match. Try again.");
-      }
-      const allowBiometricOffer = isMpin || !c.accountStatus;
-      finishOrOfferBiometric(c.id, { role: "resource", name: c.name, counsellorId: c.id, isNuLancer: !!c.isNuLancer }, allowBiometricOffer);
-    }
-  };
-
-  const finishOrOfferBiometric = (key, u, allowBiometricOffer) => {
-    if (allowBiometricOffer && bioReady && !(data.webauthn || {})[key]) setPending({ key, user: u });
-    else onLogin(u);
-  };
-
-  const signInWithBiometric = async () => {
-    setErr(""); setBioBusy(true);
-    try {
-      const credId = (data.webauthn || {})[identityKey];
-      const ok = await verifyBiometric(credId);
-      if (!ok) throw new Error("no assertion");
-      if (mode === "admin") onLogin({ role: "admin", name: "Admin" });
-      else {
-        const c = data.counsellors.find((x) => x.id === who);
-        if (!c) { setErr("Choose your name to continue."); setBioBusy(false); return; }
-        onLogin({ role: "resource", name: c.name, counsellorId: c.id, isNuLancer: !!c.isNuLancer });
-      }
-    } catch (e) {
-      setErr("Face ID / Touch ID didn't go through. Use your PIN instead.");
-    } finally {
-      setBioBusy(false);
-    }
-  };
-
-  if (pending) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div style={{ width: "100%", maxWidth: 340, textAlign: "center" }}>
-          <div style={{
-            width: 64, height: 64, borderRadius: 999, background: C.chip, margin: "0 auto 20px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <ScanFace size={28} strokeWidth={1.4} color={C.ink} />
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: C.ink, marginBottom: 6 }}>Enable Face ID?</div>
-          <div style={{ fontSize: 13, color: C.soft, marginBottom: 28, lineHeight: 1.5 }}>
-            Sign in faster next time as {pending.user.name} using Face ID or Touch ID on this device.
-          </div>
-          <Btn kind="solid" full onClick={async () => {
-            try {
-              const credId = await registerBiometric(pending.key, pending.user.name);
-              saveCredential(pending.key, credId);
-            } catch (e) { /* declined or unavailable */ }
-            onLogin(pending.user);
-          }}>Enable Face ID</Btn>
-          <div style={{ height: 10 }} />
-          <Btn full onClick={() => onLogin(pending.user)}>Not now</Btn>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, position: "relative" }}>
-      <button
-        onClick={() => {
-          setEditGrey(data.settings.loginQuoteGrey || "");
-          setEditBlack(data.settings.loginQuoteBlack || "");
-          setQuoteAuthed(false); setQuoteAuthPin(""); setQuoteAuthErr("");
-          setQuoteEditor(true);
-        }}
-        style={{
-          position: "absolute", top: "calc(18px + env(safe-area-inset-top,0px))", right: 20,
-          display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer",
-        }}>
-        <span style={{ fontSize: 12.5, color: C.soft }}>Solulu Therapy <b style={{ color: C.ink, fontWeight: 700 }}>Quotes</b></span>
-        <ArrowRight size={13} strokeWidth={2} color={C.soft} />
-      </button>
-
-      <div style={{ width: "100%", maxWidth: 360 }}>
-        <div style={{
-          fontFamily: "'Inter', " + FONT, lineHeight: 1.08, letterSpacing: "-1.2px",
-          marginBottom: 32, textAlign: "left",
-        }}>
-          <div style={{ fontSize: 34, fontWeight: 500, color: "#b4b4b8" }}>{data.settings.loginQuoteGrey || "Always believe something wonderful"}</div>
-          <div style={{ fontSize: 34, fontWeight: 900, color: "#111114" }}>{data.settings.loginQuoteBlack || "About to Happen."}</div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div style={{
-            fontFamily: "'Inter', " + FONT, fontSize: 18, fontWeight: 800, letterSpacing: "-1.2px", lineHeight: 1,
-            backgroundImage: "linear-gradient(180deg, rgba(28,28,30,0.55), rgba(28,28,30,0.14))",
-            WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-          }}>Nurora</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1c1e", letterSpacing: "-0.2px", marginTop: -7, lineHeight: 1.3, position: "relative" }}>
-            Schedule's
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-          {[["resource", "Counsellor"], ["admin", "Admin"]].map(([k, l]) => (
-            <button key={k} onClick={() => { setMode(k); setErr(""); setPin(""); }}
-              style={{
-                flex: 1, padding: "10px 0", fontSize: 13, borderRadius: 12, cursor: "pointer",
-                border: `1px solid ${mode === k ? "#111" : C.line}`,
-                background: mode === k ? "#111" : "#fff", color: mode === k ? "#fff" : C.mid,
-              }}>{l}</button>
-          ))}
-        </div>
-
-        {mode === "resource" && (
-          <Field label="Name">
-            <GlassSelect value={who} onChange={(v) => { setWho(v); setErr(""); }}
-              placeholder="Select counsellor"
-              options={(() => {
-                const activeC = data.counsellors.filter((c) => c.active);
-                const regular = activeC.filter((c) => !c.isNuLancer).map((c) => ({ value: c.id, label: c.name }));
-                const nulancers = activeC.filter((c) => c.isNuLancer).map((c) => ({ value: c.id, label: c.name }));
-                return nulancers.length
-                  ? [...regular, { divider: true, label: "——NuLancers——" }, ...nulancers]
-                  : regular;
-              })()} />
-          </Field>
-        )}
-
-        {bioReady && hasCredential && (mode === "admin" || who) && (
-          <button onClick={signInWithBiometric} disabled={bioBusy} style={{
-            width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            padding: "12px 0", marginBottom: 16, borderRadius: 12, border: `1px solid ${C.line}`,
-            background: "#fff", cursor: bioBusy ? "default" : "pointer", opacity: bioBusy ? 0.6 : 1,
-          }}>
-            <ScanFace size={17} strokeWidth={1.6} color={C.ink} />
-            <span style={{ fontSize: 14, color: C.ink }}>{bioBusy ? "Verifying…" : "Sign in with Face ID"}</span>
-          </button>
-        )}
-
-        <Field label="PIN">
-          <Input type="password" inputMode="numeric" value={pin} placeholder="••••"
-            onChange={(e) => { setPin(e.target.value); setErr(""); }}
-            onKeyDown={(e) => e.key === "Enter" && submit()} />
-        </Field>
-
-        {err && <div style={{ fontSize: 12, color: "#b42318", marginBottom: 12 }}>{err}</div>}
-        <Btn kind="solid" full onClick={submit}>Sign in</Btn>
-
-        {!bioReady && (
-          <div style={{ fontSize: 11, color: C.faint, marginTop: 16, textAlign: "center" }}>
-            Face ID / Touch ID isn't available on this device or preview.
-          </div>
-        )}
-      </div>
-
-      <Sheet open={quoteEditor} onClose={() => setQuoteEditor(false)}
-        title={quoteAuthed ? "Edit login quote" : "Admin authorization"}
-        footer={quoteAuthed ? (
-          <>
-            <Btn full onClick={() => setQuoteEditor(false)}>Cancel</Btn>
-            <Btn full kind="solid" onClick={() => { updateQuote(editGrey.trim(), editBlack.trim()); setQuoteEditor(false); }}>Save quote</Btn>
-          </>
-        ) : (
-          <>
-            <Btn full onClick={() => setQuoteEditor(false)}>Cancel</Btn>
-            <Btn full kind="solid" onClick={() => {
-              if (quoteAuthPin === data.settings.adminPin) { setQuoteAuthed(true); setQuoteAuthErr(""); }
-              else setQuoteAuthErr("That PIN doesn't match. Try again.");
-            }}>Unlock</Btn>
-          </>
-        )}>
-        {quoteAuthed ? (
-          <>
-            <Field label="Grey line" hint="The lighter, first line of the quote.">
-              <Input value={editGrey} onChange={(e) => setEditGrey(e.target.value)} />
-            </Field>
-            <Field label="Black line" hint="The bold, emphasized line underneath.">
-              <Input value={editBlack} onChange={(e) => setEditBlack(e.target.value)} />
-            </Field>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 13, color: C.soft, marginBottom: 16, lineHeight: 1.5 }}>
-              Changing the quote on the sign-in screen needs the Admin PIN.
-            </div>
-            <Field label="Admin PIN">
-              <Input type="password" inputMode="numeric" value={quoteAuthPin} placeholder="••••"
-                onChange={(e) => { setQuoteAuthPin(e.target.value); setQuoteAuthErr(""); }} />
-            </Field>
-            {quoteAuthErr && <div style={{ fontSize: 12, color: "#b42318" }}>{quoteAuthErr}</div>}
-          </>
-        )}
-      </Sheet>
-
-      <div style={{
-        position: "absolute", bottom: "calc(8px + env(safe-area-inset-bottom,0px))", left: 0, right: 0,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-      }}>
-        <span style={{ fontSize: 9, color: "#b4b4b8", letterSpacing: "-0.01em" }}>Made in LEUMAS</span>
-        <span style={{ fontSize: 9, color: "#d4d4d8" }}>|</span>
-        <span style={{ fontSize: 9, color: "#b4b4b8", letterSpacing: "-0.01em" }}>
-          Designed by{" "}
-          <a href={data.settings.designerUrl || undefined} target="_blank" rel="noreferrer"
-            onClick={(e) => { if (!data.settings.designerUrl) e.preventDefault(); }}
-            style={{ color: "#b4b4b8", textDecoration: "none" }}>
-            Samuel Rednus
-          </a>
-        </span>
-      </div>
-    </div>
-  );
-}
+/* -------------------------------------------------------------- login */
+// The PIN sign-in screen used to live here: a Counsellor/Admin toggle, a
+// name dropdown and a four-digit PIN, with its own local-only WebAuthn.
+// Sign-in is an account now — see nurora-login.jsx, which owns email and
+// password, sign-up, the reset link, and the Face ID / Touch ID /
+// fingerprint unlock on top of them.
 
 /* ------------------------------------------------- availability helpers */
 function leaveOn(data, counsellorId, date) {
@@ -1854,38 +1637,10 @@ function attendanceToday(data, counsellorId) {
   return (data.attendance || []).find((a) => a.counsellorId === counsellorId && a.date === today) || null;
 }
 
-// Best-effort one-shot location read. Browsers require the person to grant
-// permission and there's no reliable way to capture location silently in
-// the background from a web app, so this always happens at the moment of
-// tapping the toggle — that's the closest a web app can get to "automatic".
-// Resolves to null (never rejects) if location isn't available, so the
-// caller can fall back to logging just the time.
-function getLocationOnce(timeoutMs = 8000) {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
-    let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    const timer = setTimeout(() => finish(null), timeoutMs);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { clearTimeout(timer); finish({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
-      () => { clearTimeout(timer); finish(null); },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
-    );
-  });
-}
+// Attendance records saved before check-in stopped reading location still
+// carry coordinates, so the Attendance screen can still link them out to a
+// map. Nothing writes new ones.
 function mapsLink(lat, lng) { return `https://maps.google.com/?q=${lat},${lng}`; }
-
-// Great-circle distance between two lat/lng points, in meters — used to
-// enforce the check-in/check-out geofence around the clinic.
-function distanceMeters(lat1, lng1, lat2, lng2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-function fmtMeters(m) { return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`; }
 
 /* ------------------------------------------------------------ nubills */
 // Nubills reads a pasted text feed from the separate billing web app (the
@@ -2160,52 +1915,34 @@ function HolidaySheet({ open, onClose, act, defaultDate }) {
 
 /* ------------------------------------------------------------ attendance */
 // The "cute toggle capsule" on the main page — check in/out for the day.
-// Tapping it is the closest a web app can get to "automatic": it reads the
-// device's location right at that moment and stamps the time, falling back
-// to just the time if location isn't available or permission is denied.
+// Tapping it stamps the time and nothing else. It used to read the device's
+// location first and refuse a check-in taken outside a radius of the clinic,
+// which meant every tap waited on the GPS ("Locating…") and could be turned
+// down by a permission prompt or a bad fix. The time is the thing that
+// matters here, so it is taken directly.
 function AttendanceToggle({ data, act, user }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const rec = attendanceToday(data, user.counsellorId);
   const state = !rec ? "out" : !rec.outAt ? "in" : "done";
-  const s = data.settings;
-  const clinicSet = s.clinicLat != null && s.clinicLng != null;
 
-  const handleTap = async () => {
-    if (state === "done" || busy) return;
-    setError("");
-    setBusy(true);
-    const loc = await getLocationOnce();
-    // Only enforced when both the clinic's location is configured AND this
-    // device's location was actually readable — if location capture fails,
-    // this falls through to the same "logged without verification" path
-    // used elsewhere, rather than locking someone out over a flaky GPS.
-    if (loc && clinicSet) {
-      const radius = state === "out" ? (s.checkInRadiusM ?? 100) : (s.checkOutRadiusM ?? 500);
-      const dist = distanceMeters(loc.lat, loc.lng, s.clinicLat, s.clinicLng);
-      if (dist > radius) {
-        setBusy(false);
-        setError(`You're ${fmtMeters(dist)} from the clinic — ${state === "out" ? "check-in" : "check-out"} needs to be within ${radius}m.`);
-        return;
-      }
-    }
-    if (state === "out") act.recordCheckIn(user.counsellorId, loc);
-    else act.recordCheckOut(user.counsellorId, loc);
-    setBusy(false);
+  const handleTap = () => {
+    if (state === "done") return;
+    // null: recorded without a location fix, which is what inAuto/outAuto
+    // already mean everywhere the attendance record is read back.
+    if (state === "out") act.recordCheckIn(user.counsellorId, null);
+    else act.recordCheckOut(user.counsellorId, null);
   };
 
-  const label = busy ? "Locating…"
-    : state === "out" ? "Tap to check In"
+  const label = state === "out" ? "Tap to check In"
     : state === "in" ? `In since ${hm(rec.inAt)}`
     : `In ${hm(rec.inAt)} · Out ${hm(rec.outAt)}`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "2px 16px 14px" }}>
-      <button onClick={handleTap} disabled={state === "done" || busy} style={{
+      <button onClick={handleTap} disabled={state === "done"} style={{
         display: "flex", alignItems: "center", gap: 10, borderRadius: 999, padding: "6px 6px 6px 16px",
         background: state === "in" ? "linear-gradient(135deg, #7fb88f 0%, #7fd6c9 100%)" : "#fff",
         border: `1px solid ${state === "in" ? "transparent" : C.line}`,
-        cursor: state === "done" || busy ? "default" : "pointer", fontFamily: FONT,
+        cursor: state === "done" ? "default" : "pointer", fontFamily: FONT,
         boxShadow: state === "in" ? "0 4px 14px rgba(127,182,143,0.35)" : "none",
         transition: "background .3s ease, box-shadow .3s ease",
       }}>
@@ -2228,7 +1965,6 @@ function AttendanceToggle({ data, act, user }) {
           </span>
         </span>
       </button>
-      {error && <div style={{ fontSize: 11.5, color: "#b42318", marginTop: 8, textAlign: "center", maxWidth: 300 }}>{error}</div>}
     </div>
   );
 }
@@ -7458,40 +7194,10 @@ function SettingsScreen({ data, act }) {
         </Field>
       </div>
 
-      <div style={{ fontSize: 13, color: C.soft, margin: "10px 0 8px" }}>Attendance geofence</div>
-      <div style={{ fontSize: 12, color: C.faint, marginBottom: 14 }}>
-        Check-in and check-out require being within this distance of the clinic. Set the clinic's location once from here — ideally while standing at the clinic itself.
-      </div>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, padding: "13px 15px", marginBottom: 16 }}>
-        {s.clinicLat != null && s.clinicLng != null ? (
-          <>
-            <Row label="Clinic location" value={`${s.clinicLat.toFixed(5)}, ${s.clinicLng.toFixed(5)}`} />
-            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-              <Btn size="sm" onClick={async () => {
-                const loc = await getLocationOnce();
-                if (loc) setS({ ...s, clinicLat: loc.lat, clinicLng: loc.lng });
-              }}>Update to current location</Btn>
-              <Btn size="sm" kind="danger" onClick={() => setS({ ...s, clinicLat: null, clinicLng: null })}>Clear</Btn>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 13, color: C.soft, marginBottom: 12 }}>No clinic location set yet — check-in/out won't be distance-restricted until this is configured.</div>
-            <Btn size="sm" kind="solid" onClick={async () => {
-              const loc = await getLocationOnce();
-              if (loc) setS({ ...s, clinicLat: loc.lat, clinicLng: loc.lng });
-            }} icon={<MapPin size={14} strokeWidth={1.6} />}>Use current location</Btn>
-          </>
-        )}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-        <Field label="Check-in radius (m)">
-          <Input inputMode="numeric" value={s.checkInRadiusM} onChange={(e) => setS({ ...s, checkInRadiusM: num(e.target.value) })} />
-        </Field>
-        <Field label="Check-out radius (m)">
-          <Input inputMode="numeric" value={s.checkOutRadiusM} onChange={(e) => setS({ ...s, checkOutRadiusM: num(e.target.value) })} />
-        </Field>
-      </div>
+      {/* The Attendance geofence block lived here. Check-in no longer reads
+          the device's location, so there was nothing left for a clinic
+          location or a radius to govern — the settings only described
+          behaviour that had been removed. */}
 
       <div style={{ fontSize: 13, color: C.soft, margin: "10px 0 8px" }}>Personalize message template</div>
       <div style={{ fontSize: 12, color: C.faint, marginBottom: 10 }}>
@@ -7559,6 +7265,7 @@ const TABS = [
 export default function App() {
   const [data, setData] = useState(null);
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("schedule");
   const [sub, setSub] = useState(null);
@@ -7605,6 +7312,46 @@ export default function App() {
     return () => clearTimeout(t);
   }, [data]);
 
+  /*
+   * Turn an authenticated account into the identity the rest of the app
+   * works with. The cached one is reused only when it belongs to the
+   * account that just signed in — otherwise signing in as someone else on
+   * a shared device would silently hand over the previous person's lane.
+   */
+  useEffect(() => {
+    if (!session || !ready || !data) return;
+    const email = (session.user?.email || "").toLowerCase();
+    if (user && (user.email || "").toLowerCase() === email) return;
+
+    let alive = true;
+    (async () => {
+      const { user: resolved, patch } = await resolveIdentity(session, data);
+      if (!alive) return;
+      if (patch) setData(patch);
+      setUser(resolved);
+      store.set(SKEY, resolved);
+    })();
+    return () => { alive = false; };
+    // `data` is deliberately not a dependency: this needs to run when the
+    // session changes, not on every edit anyone makes to the roster.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready, user]);
+
+  // Signing out in another tab, or a refresh token that has been revoked,
+  // both arrive here. Drop straight back to the sign-in screen.
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === "SIGNED_OUT" || !next) {
+        setSession(null);
+        setUser(null);
+        store.set(SKEY, null);
+      }
+    });
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
+
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
@@ -7638,7 +7385,16 @@ export default function App() {
 
   const act = useMemo(() => ({
     login: (u) => { setUser(u); store.set(SKEY, u); setTab("schedule"); setSub(null); },
-    logout: () => { setUser(null); store.set(SKEY, null); setSub(null); setTab("schedule"); },
+
+    // Ends the account session too, not just this tab's idea of who is
+    // here — otherwise "Sign out" would leave a session on the device that
+    // the next person could walk straight back into.
+    logout: async () => {
+      setUser(null); store.set(SKEY, null); setSub(null); setTab("schedule");
+      setSession(null);
+      const supabase = getSupabase();
+      if (supabase) await supabase.auth.signOut();
+    },
 
     createAppointment: (f) => {
       const coun = data.counsellors.find((c) => c.id === f.counsellorId);
@@ -8193,10 +7949,6 @@ export default function App() {
           advanceTierAbove: Number(s.advanceTierAbove) || 0,
           nulancerRateIndividual: Number(s.nulancerRateIndividual) || 0,
           nulancerRateCouple: Number(s.nulancerRateCouple) || 0,
-          clinicLat: s.clinicLat == null ? null : Number(s.clinicLat),
-          clinicLng: s.clinicLng == null ? null : Number(s.clinicLng),
-          checkInRadiusM: Number(s.checkInRadiusM) || 100,
-          checkOutRadiusM: Number(s.checkOutRadiusM) || 500,
           services: (s.services || []).map((sv) => ({ name: sv.name, value: Number(sv.value) || 0 })),
         },
         messages: newTagMsgs.length ? [...(data.messages || []), ...newTagMsgs] : data.messages,
@@ -8220,13 +7972,6 @@ export default function App() {
       setData({ ...data, messages: [...(data.messages || []), msg] });
     },
 
-    saveBiometricCredential: (identityKey, credId) => {
-      setData({ ...data, webauthn: { ...(data.webauthn || {}), [identityKey]: credId } });
-    },
-
-    updateLoginQuote: (grey, black) => {
-      setData({ ...data, settings: { ...data.settings, loginQuoteGrey: grey, loginQuoteBlack: black } });
-    },
   }), [data, user]);
 
   if (!ready) {
@@ -8240,7 +7985,24 @@ export default function App() {
       </div>
     );
   }
-  if (!user) return <Login data={data} onLogin={act.login} saveCredential={act.saveBiometricCredential} updateQuote={act.updateLoginQuote} />;
+  // The account gate. NuroraLogin owns everything up to a valid session —
+  // email and password, sign-up, the reset link, and the Face ID / Touch
+  // ID / fingerprint unlock. Once it hands one over, resolveIdentity turns
+  // it into the counsellor or admin the screens below expect, which takes
+  // a round trip to the profiles table; hold the spinner until it lands
+  // rather than flashing an empty schedule.
+  if (!session) return <NuroraLogin onAuthenticated={setSession} />;
+  if (!user) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 999, border: "2.5px solid #ececec", borderTopColor: "#8b7fe8",
+          animation: "nurora-spin 0.7s linear infinite",
+        }} />
+        <style>{"@keyframes nurora-spin { to { transform: rotate(360deg); } }"}</style>
+      </div>
+    );
+  }
 
   const go = (s) => setSub(s);
   const myNotifs = data.notifications.filter((n) => user.role === "admin" || n.counsellorId === user.counsellorId);
