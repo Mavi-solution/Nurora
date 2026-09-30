@@ -1986,8 +1986,20 @@ function DayLeaveSheet({ open, date, existing, onClose, act, counsellorId }) {
   const [halfFrom, setHalfFrom] = useState("09:00");
   const [halfTill, setHalfTill] = useState("14:00");
 
+  // Declared before the early returns below: hooks cannot sit behind one.
+  // Both times start with a default and are only ever empty if someone
+  // clears a native time input by hand — but that leaves `act.addLeave`
+  // with a blank string, which nothing downstream expects.
+  const dlValues = { half, halfFrom, halfTill };
+  const rules = useMemo(() => [
+    { id: "dl-halfFrom", label: "From", when: (f) => f.half, test: (f) => !!f.halfFrom, message: "Choose a start time." },
+    { id: "dl-halfTill", label: "Till", when: (f) => f.half, test: (f) => !!f.halfTill, message: "Choose an end time." },
+  ], []);
+  const v = useFormValidation(rules, dlValues);
+
   useEffect(() => {
-    if (open) { setHalf(false); setHalfFrom("09:00"); setHalfTill("14:00"); }
+    if (open) { setHalf(false); setHalfFrom("09:00"); setHalfTill("14:00"); v.reset(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, date]);
 
   if (!open || !date) return null;
@@ -2015,9 +2027,11 @@ function DayLeaveSheet({ open, date, existing, onClose, act, counsellorId }) {
 
   return (
     <Sheet open onClose={onClose} title={longDate(date)}
+      notice={<ErrorSummary errors={v.visibleErrors} />}
       footer={<>
         <Btn full onClick={onClose}>Cancel</Btn>
         <Btn full kind="solid" onClick={() => {
+          if (!v.attemptSubmit()) return;
           act.addLeave({
             counsellorId, type: "Leave", from: date, to: date, half,
             halfFrom: half ? halfFrom : null, halfTill: half ? halfTill : null,
@@ -2028,7 +2042,7 @@ function DayLeaveSheet({ open, date, existing, onClose, act, counsellorId }) {
       <div style={{ fontSize: 12.5, color: C.soft, marginBottom: 18 }}>
         This counts toward this month's paid week-off quota automatically — once that's used up, further days this month are recorded as LOP.
       </div>
-      <button onClick={() => setHalf((v) => !v)}
+      <button onClick={() => setHalf((val) => !val)}
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "8px 0 16px", cursor: "pointer", background: "none", border: "none" }}>
         <span style={{ fontSize: 14 }}>Half day</span>
         <span style={{ width: 44, height: 26, borderRadius: 999, background: half ? "#111" : C.ghost, display: "flex", alignItems: "center", padding: 3 }}>
@@ -2037,8 +2051,20 @@ function DayLeaveSheet({ open, date, existing, onClose, act, counsellorId }) {
       </button>
       {half && (
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}><Field label="From"><Input type="time" value={halfFrom} onChange={(e) => setHalfFrom(e.target.value)} /></Field></div>
-          <div style={{ flex: 1, minWidth: 0 }}><Field label="Till"><Input type="time" value={halfTill} onChange={(e) => setHalfTill(e.target.value)} /></Field></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Field label="From" required htmlFor="dl-halfFrom" error={v.showFor("dl-halfFrom")}>
+              <Input id="dl-halfFrom" invalid={!!v.showFor("dl-halfFrom")} type="time" value={halfFrom}
+                onBlur={() => v.touch("dl-halfFrom")}
+                onChange={(e) => setHalfFrom(e.target.value)} />
+            </Field>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Field label="Till" required htmlFor="dl-halfTill" error={v.showFor("dl-halfTill")}>
+              <Input id="dl-halfTill" invalid={!!v.showFor("dl-halfTill")} type="time" value={halfTill}
+                onBlur={() => v.touch("dl-halfTill")}
+                onChange={(e) => setHalfTill(e.target.value)} />
+            </Field>
+          </div>
         </div>
       )}
     </Sheet>
@@ -2051,15 +2077,34 @@ function HolidaySheet({ open, onClose, act, defaultDate }) {
   const [date, setDate] = useState(defaultDate || ymd(new Date()));
   const [type, setType] = useState("Holiday");
   const [label, setLabel] = useState("");
-  useEffect(() => { if (open) { setDate(defaultDate || ymd(new Date())); setType("Holiday"); setLabel(""); } }, [open, defaultDate]);
+
+  // Before the early return below: a native date input can be cleared to
+  // "" by hand, and act.addHoliday has nothing that catches that.
+  const rules = useMemo(() => [
+    { id: "hs-date", label: "Date", test: (f) => !!f.date, message: "Choose a date." },
+  ], []);
+  const v = useFormValidation(rules, { date });
+
+  useEffect(() => {
+    if (open) { setDate(defaultDate || ymd(new Date())); setType("Holiday"); setLabel(""); v.reset(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultDate]);
   if (!open) return null;
   return (
     <Sheet open onClose={onClose} title="Mark holiday"
+      notice={<ErrorSummary errors={v.visibleErrors} />}
       footer={<>
         <Btn full onClick={onClose}>Cancel</Btn>
-        <Btn full kind="solid" onClick={() => { act.addHoliday({ date, type, label: label.trim() || type }); onClose(); }}>Save</Btn>
+        <Btn full kind="solid" onClick={() => {
+          if (!v.attemptSubmit()) return;
+          act.addHoliday({ date, type, label: label.trim() || type }); onClose();
+        }}>Save</Btn>
       </>}>
-      <Field label="Date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Date" required htmlFor="hs-date" error={v.showFor("hs-date")}>
+        <Input id="hs-date" invalid={!!v.showFor("hs-date")} type="date" value={date}
+          onBlur={() => v.touch("hs-date")}
+          onChange={(e) => setDate(e.target.value)} />
+      </Field>
       <Field label="Type">
         <div style={{ display: "flex", gap: 8 }}>
           {["Holiday", "Festival", "Special"].map((t) => (
@@ -5079,8 +5124,19 @@ function CancelRescheduleSheet({ appt, data, act, onClose, initialMode }) {
   const [newTime, setNewTime] = useState("");
   const [err, setErr] = useState("");
 
+  // Before the early return below. Only the reschedule-date step has
+  // required fields — Date can be cleared by hand, and Time slot's old
+  // `if (!newTime) return setErr(...)` reported one thing at a time and
+  // rendered a message that never told the field itself it was invalid.
+  const crRules = useMemo(() => [
+    { id: "cr-date", label: "Date", test: (f) => !!f.newDate, message: "Choose a date." },
+    { id: "cr-time", label: "Time slot", test: (f) => !!f.newTime, message: "Choose a time slot." },
+  ], []);
+  const crv = useFormValidation(crRules, { newDate, newTime });
+
   useEffect(() => {
-    if (appt) { setMode(initialMode || null); setRefund(false); setReason(""); setNewDate(ymd(new Date())); setNewTime(""); setErr(""); }
+    if (appt) { setMode(initialMode || null); setRefund(false); setReason(""); setNewDate(ymd(new Date())); setNewTime(""); setErr(""); crv.reset(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appt]);
 
   if (!appt) return null;
@@ -5150,22 +5206,36 @@ function CancelRescheduleSheet({ appt, data, act, onClose, initialMode }) {
   // mode === "reschedule-date"
   return (
     <Sheet open onClose={onClose} title="Pick new date & time"
+      notice={<>
+        <ErrorSummary errors={crv.visibleErrors} />
+        {err && <div role="alert" style={{
+          background: "#fdf2f1", border: "1px solid #f3d4d0", borderRadius: 12,
+          padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
+          marginTop: crv.visibleErrors.length ? 8 : 0,
+        }}>{err}</div>}
+      </>}
       footer={<>
         <Btn full onClick={() => setMode("reschedule")}>Back</Btn>
         <Btn full kind="solid" onClick={() => {
-          if (!newTime) return setErr("Choose a time slot.");
+          setErr("");
+          if (!crv.attemptSubmit()) return;
           const r = act.rescheduleAppointment(appt.id, newDate, newTime);
           if (r && r.error) return setErr(r.error);
           onClose();
         }}>Confirm reschedule</Btn>
       </>}>
-      <Field label="Date"><Input type="date" value={newDate} onChange={(e) => { setNewDate(e.target.value); setNewTime(""); }} /></Field>
-      <Field label="Time slot">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <Field label="Date" required htmlFor="cr-date" error={crv.showFor("cr-date")}>
+        <Input id="cr-date" invalid={!!crv.showFor("cr-date")} type="date" value={newDate}
+          onBlur={() => crv.touch("cr-date")}
+          onChange={(e) => { setNewDate(e.target.value); setNewTime(""); }} />
+      </Field>
+      <Field label="Time slot" required htmlFor="cr-time" error={crv.showFor("cr-time")}>
+        <div id="cr-time" tabIndex={-1} role="group" aria-label="Time slot"
+          style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
           {slotOptions.map((t) => {
             const isTaken = taken.has(t);
             return (
-              <button key={t} disabled={isTaken} onClick={() => setNewTime(t)} style={{
+              <button key={t} disabled={isTaken} onClick={() => { setNewTime(t); crv.touch("cr-time"); }} style={{
                 fontSize: 13, padding: "9px 13px", borderRadius: 12, cursor: isTaken ? "default" : "pointer",
                 border: `1px solid ${newTime === t ? "#111" : C.line}`, background: newTime === t ? "#111" : "#fff",
                 color: newTime === t ? "#fff" : isTaken ? C.faint : C.ink,
@@ -5174,7 +5244,6 @@ function CancelRescheduleSheet({ appt, data, act, onClose, initialMode }) {
           })}
         </div>
       </Field>
-      {err && <div style={{ fontSize: 12.5, color: "#b42318", marginTop: 8 }}>{err}</div>}
     </Sheet>
   );
 }
@@ -6250,7 +6319,23 @@ function CounsellorDetail({ data, act, id, user, go }) {
   );
 }
 
+// Not rendered anywhere today — LeavesScreen links straight to the
+// counsellor detail page instead. Left working and validated rather than
+// deleted, since removing an unused-but-functional component isn't what
+// this pass is for; if it stays unreachable, say so and it can go.
 function LeaveApplySheet({ open, onClose, lf, setLf, data, act, counsellorId }) {
+  // Before the early return: `lf` may not exist yet on a render where
+  // `open` is false, so the rules look at a safe stand-in rather than at
+  // `lf` directly.
+  const lfSafe = lf || EMPTY_FORM;
+  const rules = useMemo(() => [
+    { id: "la-from", label: "From", test: (f) => !!f.from, message: "Choose a start date." },
+    { id: "la-to", label: "To", test: (f) => !!f.to, message: "Choose an end date." },
+    { id: "la-to", label: "To", when: (f) => !!f.from && !!f.to, test: (f) => f.to >= f.from, message: "The end date can't be before the start date." },
+  ], []);
+  const v = useFormValidation(rules, lfSafe);
+  useEffect(() => { if (open) v.reset(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [open]);
+
   if (!open) return null;
   const mk = monthKeyOf(lf.from);
   const quota = weekOffQuotaForMonth(mk);
@@ -6261,13 +6346,22 @@ function LeaveApplySheet({ open, onClose, lf, setLf, data, act, counsellorId }) 
 
   return (
     <Sheet open={open} onClose={onClose} title="Apply for leave"
+      notice={<ErrorSummary errors={v.visibleErrors} />}
       footer={<><Btn full onClick={onClose}>Cancel</Btn>
-        <Btn full kind="solid" onClick={() => { act.addLeave({ ...lf, counsellorId }); onClose(); }}>Save leave</Btn></>}>
+        <Btn full kind="solid" onClick={() => { if (!v.attemptSubmit()) return; act.addLeave({ ...lf, counsellorId }); onClose(); }}>Save leave</Btn></>}>
       <Field label="Type" hint={isPaidOff ? "A designated paid day off. Always paid, doesn't use the monthly quota." : "Counts against the monthly paid-leave quota."}>
-        <GlassSelect value={lf.type} onChange={(v) => setLf({ ...lf, type: v })} options={["Leave", "Paid-off"]} />
+        <GlassSelect value={lf.type} onChange={(t) => setLf({ ...lf, type: t })} options={["Leave", "Paid-off"]} />
       </Field>
-      <Field label="From"><Input type="date" value={lf.from} onChange={(e) => setLf({ ...lf, from: e.target.value, to: e.target.value > lf.to ? e.target.value : lf.to })} /></Field>
-      <Field label="To"><Input type="date" value={lf.to} onChange={(e) => setLf({ ...lf, to: e.target.value })} /></Field>
+      <Field label="From" required htmlFor="la-from" error={v.showFor("la-from")}>
+        <Input id="la-from" invalid={!!v.showFor("la-from")} type="date" value={lf.from}
+          onBlur={() => v.touch("la-from")}
+          onChange={(e) => setLf({ ...lf, from: e.target.value, to: e.target.value > lf.to ? e.target.value : lf.to })} />
+      </Field>
+      <Field label="To" required htmlFor="la-to" error={v.showFor("la-to")}>
+        <Input id="la-to" invalid={!!v.showFor("la-to")} type="date" value={lf.to}
+          onBlur={() => v.touch("la-to")}
+          onChange={(e) => setLf({ ...lf, to: e.target.value })} />
+      </Field>
       <button onClick={() => setLf({ ...lf, half: !lf.half })}
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "8px 0 18px", cursor: "pointer", background: "none", border: "none" }}>
         <span style={{ fontSize: 14 }}>Half day</span>
