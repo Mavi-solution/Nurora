@@ -8,6 +8,10 @@ import {
   deleteCounsellorRow, seedCounsellorsIfEmpty, subscribeCounsellors,
   linkCounsellorToProfile,
 } from "@/lib/counsellors-sync";
+import {
+  loadClients, loadAppointments, upsertClientRow, upsertAppointmentRow,
+  seedClientsAndAppointmentsIfEmpty, subscribeClients, subscribeAppointments,
+} from "@/lib/clients-appointments-sync";
 
 // Runs the instant this script loads — before React mounts or paints anything —
 // because a viewport fix applied only after first paint is often too late for
@@ -7842,7 +7846,15 @@ export default function App() {
     });
 
     return () => { alive = false; unsubscribe(); };
-  }, [session, ready, data]);
+    // `data` is deliberately not a dependency, same reasoning as the
+    // identity-resolution effect above: `data` changes on essentially
+    // every action anyone takes anywhere in the app, and this effect
+    // must run exactly once per session, not tear down and recreate the
+    // realtime subscription on every single one of those. The loaded
+    // ref already makes the bootstrap logic a no-op on any re-run; not
+    // depending on `data` stops there being a re-run to guard against.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
 
   // Any local add/edit/delete of a counsellor — from any of the ~10 call
   // sites in `act` below — changes this array's reference. Diff it
@@ -7866,6 +7878,106 @@ export default function App() {
       for (const id of prevById.keys()) {
         if (!nextById.has(id)) deleteCounsellorRow(id);
       }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  /*
+   * Clients and appointments, shared across every device — same
+   * pattern as counsellors above: load once (seeding from this device
+   * if the shared tables are still empty), subscribe to what every
+   * other device does, diff local edits back out. Loaded together
+   * because bootstrapping them separately would try to insert an
+   * appointment before its client exists on the shared side and fail
+   * the foreign key.
+   */
+  const remoteClientsRef = useRef(null);
+  const remoteAppointmentsRef = useRef(null);
+  const clientsAppointmentsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || clientsAppointmentsLoadedRef.current) return;
+    clientsAppointmentsLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let [sharedClients, sharedAppts] = await Promise.all([loadClients(), loadAppointments()]);
+      if (sharedClients && sharedClients.length === 0) {
+        const seeded = await seedClientsAndAppointmentsIfEmpty(data.clients, data.appointments);
+        if (seeded) {
+          [sharedClients, sharedAppts] = await Promise.all([loadClients(), loadAppointments()]);
+        }
+      }
+      if (!alive) return;
+      if (sharedClients) { remoteClientsRef.current = sharedClients; }
+      if (sharedAppts) { remoteAppointmentsRef.current = sharedAppts; }
+      if (sharedClients || sharedAppts) {
+        setData((d) => (d ? {
+          ...d,
+          clients: sharedClients || d.clients,
+          appointments: sharedAppts || d.appointments,
+        } : d));
+      }
+    })();
+
+    const unsubClients = subscribeClients((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = d.clients.some((c) => c.id === row.id)
+          ? d.clients.map((c) => (c.id === row.id ? row : c))
+          : [...d.clients, row];
+        remoteClientsRef.current = next;
+        return { ...d, clients: next };
+      });
+    });
+    const unsubAppts = subscribeAppointments((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = d.appointments.some((a) => a.id === row.id)
+          ? d.appointments.map((a) => (a.id === row.id ? row : a))
+          : [...d.appointments, row];
+        remoteAppointmentsRef.current = next;
+        return { ...d, appointments: next };
+      });
+    });
+
+    return () => { alive = false; unsubClients(); unsubAppts(); };
+    // Same reasoning as the counsellors effect above: `data` is not a
+    // dependency, or this tears down and rebuilds both realtime
+    // subscriptions on every single edit anyone makes to anything.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const clientsPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const next = data.clients;
+    const prev = clientsPrevRef.current;
+    clientsPrevRef.current = next;
+    if (!prev || prev === next) return;
+    if (next === remoteClientsRef.current) return;
+
+    const t = setTimeout(() => {
+      const prevById = new Map(prev.map((c) => [c.id, c]));
+      for (const c of next) if (prevById.get(c.id) !== c) upsertClientRow(c);
+      // No delete path: a client is never removed, only ever added to or edited.
+    }, 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  const appointmentsPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const next = data.appointments;
+    const prev = appointmentsPrevRef.current;
+    appointmentsPrevRef.current = next;
+    if (!prev || prev === next) return;
+    if (next === remoteAppointmentsRef.current) return;
+
+    const t = setTimeout(() => {
+      const prevById = new Map(prev.map((a) => [a.id, a]));
+      for (const a of next) if (prevById.get(a.id) !== a) upsertAppointmentRow(a);
+      // No delete path: cancelling sets status, it never removes the row.
     }, 500);
     return () => clearTimeout(t);
   }, [ready, data]);
