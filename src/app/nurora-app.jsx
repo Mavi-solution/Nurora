@@ -917,12 +917,141 @@ function SegmentRing({ size = 30, filled, total = 5, Icon, label }) {
   );
 }
 
-function Field({ label, children, hint }) {
+/*
+ * A labelled field.
+ *
+ * `htmlFor` is what makes the label a real one: without it this renders a
+ * caption that happens to sit above a control, which is what every field
+ * in the app used to be. With it, the control has a name, and tapping the
+ * label moves focus to it.
+ *
+ * `error` replaces `hint` while it is set rather than stacking under it —
+ * two lines of small grey-and-red text below a field read as one
+ * paragraph, and the one that matters loses.
+ */
+function Field({ label, children, hint, required, error, htmlFor }) {
+  const errorId = htmlFor ? `${htmlFor}-error` : undefined;
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 12, color: C.soft, marginBottom: 6 }}>{label}</div>
+      <label
+        htmlFor={htmlFor}
+        style={{ display: "block", fontSize: 12, color: C.soft, marginBottom: 6, cursor: htmlFor ? "pointer" : "default" }}
+      >
+        {label}
+        {/* aria-hidden: "required" is already on the control itself, and a
+            screen reader announcing "asterisk" after every label is noise. */}
+        {required && <span aria-hidden="true" style={{ color: "#b42318", marginLeft: 3 }}>*</span>}
+      </label>
       {children}
-      {hint && <div style={{ fontSize: 11, color: C.faint, marginTop: 5 }}>{hint}</div>}
+      {error
+        ? <div id={errorId} role="alert" style={{ fontSize: 11.5, color: "#b42318", marginTop: 5 }}>{error}</div>
+        : hint && <div style={{ fontSize: 11, color: C.faint, marginTop: 5 }}>{hint}</div>}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- validation */
+/*
+ * Rules are a LIST, declared in the order the fields appear on screen,
+ * and every one of them is evaluated on every pass. The old approach —
+ * a chain of `if (!x) return setErr(...)` — could only ever report one
+ * problem, and reported it in whatever order the chain happened to be
+ * written in, which was not the order anyone reads the form in.
+ *
+ * Each rule is { id, label, when?, test, message }. `id` is the DOM id of
+ * the control, so a failure knows what to focus. `when` narrows a rule to
+ * the shape of form it applies to; a rule that doesn't apply isn't a pass,
+ * it simply isn't asked.
+ */
+function validateRules(rules, values) {
+  const out = [];
+  for (const r of rules) {
+    if (r.when && !r.when(values)) continue;
+    if (r.test(values)) continue;
+    out.push({
+      id: r.id,
+      label: r.label,
+      message: typeof r.message === "function" ? r.message(values) : r.message,
+    });
+  }
+  return out;
+}
+
+function focusField(id) {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Centred rather than "just visible": a field scrolled flush against a
+  // sticky footer is technically in view and practically hidden.
+  try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { el.scrollIntoView(); }
+  if (typeof el.focus === "function") {
+    try { el.focus({ preventScroll: true }); } catch { el.focus(); }
+  }
+}
+
+/*
+ * When a field is allowed to complain.
+ *
+ * Not while it is being filled in for the first time — nobody wants "enter
+ * a valid email" after the first keystroke. It starts once focus LEAVES
+ * the field (touched), or once Save has been pressed, at which point every
+ * field is fair game at once. After that the message is live: it clears as
+ * soon as the value becomes valid, without waiting for another blur.
+ */
+function useFormValidation(rules, values) {
+  const [touched, setTouched] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const errors = useMemo(() => validateRules(rules, values), [rules, values]);
+  const errorById = useMemo(() => {
+    const m = {};
+    for (const e of errors) m[e.id] = e;
+    return m;
+  }, [errors]);
+
+  const showFor = (id) => (submitted || touched[id]) && errorById[id] ? errorById[id].message : null;
+  const touch = (id) => setTouched((t) => (t[id] ? t : { ...t, [id]: true }));
+  const reset = () => { setTouched({}); setSubmitted(false); };
+
+  // True when it is safe to go ahead. Otherwise it reveals everything and
+  // sends focus to the first thing that needs attention.
+  const attemptSubmit = () => {
+    setSubmitted(true);
+    if (errors.length === 0) return true;
+    focusField(errors[0].id);
+    return false;
+  };
+
+  // Only the ones being shown — the summary must agree with the fields.
+  const visibleErrors = submitted ? errors : errors.filter((e) => touched[e.id]);
+
+  return { errors, visibleErrors, showFor, touch, reset, attemptSubmit, submitted };
+}
+
+// Sits above the footer buttons, never inside the scrolling body — the
+// old single error line rendered at the end of the form, which on a phone
+// put it behind the sticky footer, so pressing Save looked like it did
+// nothing at all.
+function ErrorSummary({ errors }) {
+  if (!errors || errors.length === 0) return null;
+  return (
+    <div role="alert" style={{
+      background: "#fdf2f1", border: "1px solid #f3d4d0", borderRadius: 12,
+      padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
+    }}>
+      <div style={{ fontWeight: 500, marginBottom: errors.length > 1 ? 5 : 0 }}>
+        {errors.length === 1 ? "1 field needs attention" : `${errors.length} fields need attention`}
+      </div>
+      {errors.length > 1 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px" }}>
+          {errors.map((e) => (
+            <button key={e.id} type="button" onClick={() => focusField(e.id)} style={{
+              border: "none", background: "none", padding: 0, cursor: "pointer",
+              font: "inherit", color: "#b42318", textDecoration: "underline", textUnderlineOffset: 2,
+            }}>{e.label}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -960,7 +1089,16 @@ const inputStyle = {
   fontSize: 14, color: C.ink, background: "#fff", outline: "none", fontFamily: FONT,
 };
 
-function Input(props) { return <input {...props} style={{ ...inputStyle, ...(props.style || {}) }} />; }
+function Input({ invalid, ...props }) {
+  return (
+    <input
+      {...props}
+      aria-invalid={invalid ? "true" : undefined}
+      aria-describedby={invalid && props.id ? `${props.id}-error` : props["aria-describedby"]}
+      style={{ ...inputStyle, ...(invalid ? { borderColor: "#e4a49e" } : null), ...(props.style || {}) }}
+    />
+  );
+}
 function Select({ children, ...p }) {
   return <select {...p} style={{ ...inputStyle, paddingRight: 34, ...(p.style || {}) }}>{children}</select>;
 }
@@ -969,7 +1107,14 @@ function Select({ children, ...p }) {
 // so every picker in the app matches the same frosted-glass style instead of
 // the OS's own popup. Positioned fixed (measured from the trigger) so it
 // always escapes clipping from a scrollable sheet.
-function GlassSelect({ value, onChange, options, placeholder = "Select", style }) {
+/*
+ * `id` and `invalid` exist so this can sit in a Field like any input: the
+ * id is what a failed rule focuses, and `invalid` paints the same red
+ * border a text box gets. `onSettle` is this control's equivalent of blur
+ * — a native blur fires the moment the menu opens, which would mark the
+ * field touched and flash an error while the person is still choosing.
+ */
+function GlassSelect({ value, onChange, options, placeholder = "Select", style, id, invalid, onSettle }) {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
@@ -984,12 +1129,20 @@ function GlassSelect({ value, onChange, options, placeholder = "Select", style }
     setOpen(true);
   };
 
+  // Closing the menu is the moment this field has been dealt with, whether
+  // something was picked or it was dismissed.
+  const closeMenu = () => { setOpen(false); if (onSettle) onSettle(); };
+
   return (
     <>
-      <button ref={btnRef} type="button" onClick={openMenu} style={{
-        ...inputStyle, paddingRight: 34, display: "flex", alignItems: "center", justifyContent: "space-between",
-        cursor: "pointer", textAlign: "left", ...(style || {}),
-      }}>
+      <button ref={btnRef} id={id} type="button" onClick={openMenu}
+        aria-invalid={invalid ? "true" : undefined}
+        aria-describedby={invalid && id ? `${id}-error` : undefined}
+        style={{
+          ...inputStyle, paddingRight: 34, display: "flex", alignItems: "center", justifyContent: "space-between",
+          cursor: "pointer", textAlign: "left",
+          ...(invalid ? { borderColor: "#e4a49e" } : null), ...(style || {}),
+        }}>
         <span style={{ color: selected ? C.ink : C.faint, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {selected ? selected.label : placeholder}
         </span>
@@ -999,7 +1152,7 @@ function GlassSelect({ value, onChange, options, placeholder = "Select", style }
 
       {open && rect && (
         <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90, touchAction: "pan-y" }} />
+          <div onClick={closeMenu} style={{ position: "fixed", inset: 0, zIndex: 90, touchAction: "pan-y" }} />
           <div style={{
             position: "fixed", top: rect.top, left: rect.left, width: rect.width, zIndex: 91,
             maxHeight: 280, overflowY: "auto", borderRadius: 20, padding: 6,
@@ -1011,7 +1164,7 @@ function GlassSelect({ value, onChange, options, placeholder = "Select", style }
                 <span style={{ fontSize: 14, color: C.soft, letterSpacing: "0.03em" }}>{o.label}</span>
               </div>
             ) : (
-              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); closeMenu(); }}
                 style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "11px 13px", background: value === o.value ? "rgba(0,0,0,0.05)" : "transparent",
@@ -1163,7 +1316,7 @@ function useIsWide(bp = 640) {
   return wide;
 }
 
-function Sheet({ open, onClose, title, children, footer, wide, headerExtra }) {
+function Sheet({ open, onClose, title, children, footer, wide, headerExtra, notice }) {
   const isWide = useIsWide();
   useEffect(() => {
     if (!open) return;
@@ -1208,7 +1361,16 @@ function Sheet({ open, onClose, title, children, footer, wide, headerExtra }) {
           </div>
         </div>
         <div style={{ padding: "18px 20px", overflowY: "auto", overflowX: "hidden", flex: 1 }}>{children}</div>
-        {footer && <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.hair}`, display: "flex", gap: 10 }}>{footer}</div>}
+        {/* `notice` rides with the footer, outside the scrolling body, so a
+            message about why the button didn't work can't be scrolled away
+            from the button itself. The border moves to the wrapper so a
+            sheet without a notice looks exactly as it did. */}
+        {(footer || notice) && (
+          <div style={{ borderTop: `1px solid ${C.hair}`, flexShrink: 0 }}>
+            {notice && <div style={{ padding: "12px 20px 0" }}>{notice}</div>}
+            {footer && <div style={{ padding: "14px 20px", display: "flex", gap: 10 }}>{footer}</div>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3864,6 +4026,8 @@ function VoiceRecorder({ audioData, durationSec, onRecorded, onClear }) {
 
 
 /* ------------------------------------------------- new appointment sheet */
+const EMPTY_FORM = {};
+
 function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, initialClientName }) {
   const s = data.settings;
   const services = s.services || [];
@@ -3885,9 +4049,79 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [data.interests]);
 
+  /*
+   * Required fields, in the order they appear above. Same conditions the
+   * old if-chain enforced, one per rule instead of one per early return,
+   * so a pass reports everything that is missing rather than whichever
+   * check happened to be written first.
+   *
+   * `id` is the control to focus. Follow-up has no counsellor picker of
+   * its own — the client is chosen by searching — so that rule points at
+   * the search box.
+   */
+  const rules = useMemo(() => [
+    { id: "na-followupName", label: "Client", when: (f) => f.bookingKind === "followup",
+      test: (f) => !!f.clientId, message: "Choose the client for this follow-up." },
+    { id: "na-clientName", label: "Client name", when: (f) => f.bookingKind !== "followup",
+      test: (f) => !!(f.clientName || "").trim(), message: "Enter the client's name." },
+    { id: "na-clientAge", label: "Age", when: (f) => f.bookingKind !== "followup",
+      test: (f) => !!f.clientAge, message: "Enter the client's age." },
+    { id: "na-category", label: "Service", when: (f) => f.bookingKind !== "followup",
+      test: (f) => !!f.category, message: "Choose a service." },
+    { id: "na-counsellor", label: "Counsellor",
+      test: (f) => !!f.counsellorId, message: "Choose a counsellor." },
+    { id: "na-time", label: "Time slot",
+      test: (f) => !!f.time, message: "Choose a time slot." },
+    { id: "na-mode", label: "Mode", when: (f) => f.bookingKind !== "followup",
+      test: (f) => !!f.mode, message: "Choose Online or Offline." },
+    { id: "na-parentName", label: "Parent's name",
+      when: (f) => f.bookingKind !== "followup" && /child|adolescent/i.test(f.category || ""),
+      test: (f) => !!(f.parentName || "").trim(), message: "Parent's name is required for this category." },
+    { id: "na-whatsapp", label: "WhatsApp number", when: (f) => f.bookingKind !== "followup",
+      test: (f) => !!(f.whatsapp || "").trim(), message: "Enter a WhatsApp number." },
+    { id: "na-advance", label: "Advance",
+      when: (f) => f.bookingStatus !== "interest" && !!advanceReqFor(f),
+      test: (f) => {
+        const need = advanceReqFor(f);
+        return (Number(f.advance) || Number(f.paidCapsuleAmount) || 0) >= need.amount;
+      },
+      message: (f) => {
+        const need = advanceReqFor(f);
+        return need.kind === "full"
+          ? `Full payment of ${money(need.amount)} is required for this booking.`
+          : `Advance of at least ${money(need.amount)} is required for this category.`;
+      } },
+    { id: "na-tags", label: "Tags",
+      test: (f) => !!(f.tags && f.tags.length), message: "Choose at least one tag." },
+    { id: "na-screenshot", label: "Advance payment",
+      when: (f) => f.bookingStatus !== "interest" && !isAdmin,
+      test: (f) => !!f.paymentScreenshotName, message: "Upload a screenshot of the advance payment." },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [isAdmin, data.clients, s]);
+
+  // `form` is null until the sheet opens. The hook must still run —
+  // hooks cannot sit behind an early return — so it validates an empty
+  // object until there is something real to look at.
+  const v = useFormValidation(rules, form || EMPTY_FORM);
+  const fieldErr = v.showFor;
+
+  // Every rule reads the form alone, so the advance requirement has to be
+  // derivable from it rather than from the component's own `req`.
+  function advanceReqFor(f) {
+    const followup = f.bookingKind === "followup";
+    const cl = followup ? data.clients.find((c) => c.id === f.clientId) : null;
+    const cat = followup ? (cl?.category || "") : f.category;
+    const md = followup ? (cl?.mode || "") : f.mode;
+    return cat || md ? advanceRequirement(s, cat, md) : null;
+  }
+
+
   useEffect(() => {
     if (open) {
       setErr("");
+      // A fresh sheet starts quiet: nothing is touched, nothing has been
+      // submitted, so no field complains before it has been visited.
+      v.reset();
       setBookedConfirm(null);
       setForm({
         date, counsellorId: user.isNuLancer ? user.counsellorId : (prefill?.counsellorId || (isResource ? user.counsellorId : "")), time: prefill?.time || "",
@@ -3980,21 +4214,7 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
 
   const save = () => {
     setErr("");
-    if (!form.counsellorId) return setErr("Choose a counsellor.");
-    if (!form.time) return setErr("Choose a time slot.");
-
-    if (isFollowup) {
-      if (!form.clientId) return setErr("Choose the client for this follow-up.");
-    } else {
-      if (!form.clientName.trim()) return setErr("Enter the client's name.");
-      if (!form.mode) return setErr("Choose Online or Offline.");
-      if (!form.category) return setErr("Choose a service.");
-      if (!form.clientAge) return setErr("Enter the client's age.");
-      if (needsParent && !form.parentName.trim()) return setErr("Parent's name is required for this category.");
-      if (!form.whatsapp.trim()) return setErr("Enter a WhatsApp number.");
-    }
-
-    if (!form.tags || form.tags.length === 0) return setErr("Choose at least one tag.");
+    if (!v.attemptSubmit()) return;
 
     if (isInterest) {
       // Interest doesn't hold the slot and doesn't need payment proof —
@@ -4002,19 +4222,6 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       act.saveInterest(form, "interest");
       onClose();
       return;
-    }
-
-    if (req) {
-      const advanceNum = Number(form.advance) || Number(form.paidCapsuleAmount) || 0;
-      if (advanceNum < req.amount) {
-        return setErr(req.kind === "full"
-          ? `Full payment of ${money(req.amount)} is required for this booking.`
-          : `Advance of at least ${money(req.amount)} is required for this category.`);
-      }
-    }
-
-    if (!isAdmin && !form.paymentScreenshotName) {
-      return setErr("Upload a screenshot of the advance payment.");
     }
 
     const chips = [...(form.tags || []), effMode].filter(Boolean);
@@ -4097,6 +4304,14 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
           )}
         </div>
       }
+      notice={<>
+        <ErrorSummary errors={v.visibleErrors} />
+        {err && <div role="alert" style={{
+          background: "#fdf2f1", border: "1px solid #f3d4d0", borderRadius: 12,
+          padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
+          marginTop: v.visibleErrors.length ? 8 : 0,
+        }}>{err}</div>}
+      </>}
       footer={<><Btn full onClick={handleClose}>Cancel</Btn>
         <Btn full kind="solid" onClick={save}>{isInterest ? "Save as Interest" : "Book appointment"}</Btn></>}>
       <Field label="Client type">
@@ -4141,8 +4356,10 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       <div key={isFollowup ? "followup" : "new"} style={{ animation: "nurora-fade-in .28s ease" }}>
       {isFollowup ? (
         <>
-          <Field label="Client name">
-            <Input placeholder="Search by name" value={form.followupName || ""}
+          <Field label="Client name" required htmlFor="na-followupName" error={fieldErr("na-followupName")}>
+            <Input id="na-followupName" invalid={!!fieldErr("na-followupName")}
+              placeholder="Search by name" value={form.followupName || ""}
+              onBlur={() => v.touch("na-followupName")}
               onChange={(e) => setForm({ ...form, followupName: e.target.value, clientId: "" })} />
           </Field>
 
@@ -4198,22 +4415,32 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
         </>
       ) : (
         <>
-          <Field label="Client name">
-            <Input placeholder="Full name" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
+          <Field label="Client name" required htmlFor="na-clientName" error={fieldErr("na-clientName")}>
+            <Input id="na-clientName" invalid={!!fieldErr("na-clientName")}
+              placeholder="Full name" value={form.clientName}
+              onBlur={() => v.touch("na-clientName")}
+              onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
           </Field>
 
-          <Field label="Gender">
-            <GlassSelect value={form.gender} onChange={(v) => setForm({ ...form, gender: v })}
+          {/* Optional today, and left that way deliberately — making it
+              required would change who can book, not just how it reads. */}
+          <Field label="Gender" htmlFor="na-gender">
+            <GlassSelect id="na-gender" value={form.gender} onChange={(g) => setForm({ ...form, gender: g })}
               placeholder="Select gender"
               options={["Male", "Female"]} />
           </Field>
 
-          <Field label="Age">
-            <Input inputMode="numeric" placeholder="Age" value={form.clientAge} onChange={(e) => setForm({ ...form, clientAge: e.target.value })} />
+          <Field label="Age" required htmlFor="na-clientAge" error={fieldErr("na-clientAge")}>
+            <Input id="na-clientAge" invalid={!!fieldErr("na-clientAge")}
+              inputMode="numeric" placeholder="Age" value={form.clientAge}
+              onBlur={() => v.touch("na-clientAge")}
+              onChange={(e) => setForm({ ...form, clientAge: e.target.value })} />
           </Field>
 
-          <Field label="Service / Category">
-            <GlassSelect value={form.category} onChange={(v) => setForm({ ...form, category: v })}
+          <Field label="Service / Category" required htmlFor="na-category" error={fieldErr("na-category")}>
+            <GlassSelect id="na-category" invalid={!!fieldErr("na-category")}
+              value={form.category} onChange={(c) => setForm({ ...form, category: c })}
+              onSettle={() => v.touch("na-category")}
               placeholder="Select service"
               options={services.map((sv) => ({ value: sv.name, label: `${sv.name} — ${money(sv.value)}` }))} />
           </Field>
@@ -4235,16 +4462,18 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       </TimelineStep>
 
       <TimelineStep icon={CalendarClock} done={doneSchedule} active={doneClient && !doneSchedule}>
-      <Field label="Date">
-        <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value, time: "" })} />
+      <Field label="Date" htmlFor="na-date">
+        <Input id="na-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value, time: "" })} />
       </Field>
-      <Field label="Counsellor">
+      <Field label="Counsellor" required htmlFor="na-counsellor" error={fieldErr("na-counsellor")}>
         {user.isNuLancer ? (
           <div style={{ width: "100%", border: `1px solid ${C.line}`, borderRadius: 12, padding: "11px 13px", fontSize: 16, color: C.mid, background: C.chip }}>
             {counsellor ? counsellor.name : user.name}
           </div>
         ) : (
-          <GlassSelect value={form.counsellorId} onChange={(v) => setForm({ ...form, counsellorId: v, time: "" })}
+          <GlassSelect id="na-counsellor" invalid={!!fieldErr("na-counsellor")}
+            value={form.counsellorId} onChange={(cid) => setForm({ ...form, counsellorId: cid, time: "" })}
+            onSettle={() => v.touch("na-counsellor")}
             placeholder="Select counsellor"
             options={data.counsellors
               .filter((c) => c.active)
@@ -4257,13 +4486,14 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       </Field>
 
       {counsellor && (
-        <Field label="Time slot">
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <Field label="Time slot" required htmlFor="na-time" error={fieldErr("na-time")}>
+          <div id="na-time" tabIndex={-1} role="group" aria-label="Time slot"
+            style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
             {slotOptions.map((t) => {
               const isTaken = taken.has(t);
               const on = form.time === t;
               return (
-                <button key={t} disabled={isTaken} onClick={() => setForm({ ...form, time: t })}
+                <button key={t} disabled={isTaken} onClick={() => { setForm({ ...form, time: t }); v.touch("na-time"); }}
                   style={{
                     position: "relative", fontSize: 13, padding: "9px 13px", borderRadius: 12, cursor: isTaken ? "default" : "pointer",
                     border: `1px solid ${on ? "#111" : C.line}`, background: on ? "#111" : "#fff",
@@ -4290,49 +4520,62 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       <TimelineStep icon={Tag} done={donePayment} active={doneSchedule && !donePayment}>
       {!isFollowup && (
         <>
-          <Field label="Mode">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <Field label="Mode" required htmlFor="na-mode" error={fieldErr("na-mode")}>
+            <div id="na-mode" tabIndex={-1} role="group" aria-label="Mode"
+              style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
               {modes.map((m) => (
-                <button key={m} onClick={() => setForm({ ...form, mode: m })}
+                <button key={m} onClick={() => { setForm({ ...form, mode: m }); v.touch("na-mode"); }}
                   style={{ padding: "10px 14px", fontSize: 13, borderRadius: 12, cursor: "pointer", border: `1px solid ${form.mode === m ? "#111" : C.line}`, background: form.mode === m ? "#111" : "#fff", color: form.mode === m ? "#fff" : C.mid }}>{m}</button>
               ))}
             </div>
           </Field>
 
           {needsParent && (
-            <Field label="Parent's name">
-              <Input placeholder="Required for Adolescent / Child" value={form.parentName} onChange={(e) => setForm({ ...form, parentName: e.target.value })} />
+            <Field label="Parent's name" required htmlFor="na-parentName" error={fieldErr("na-parentName")}>
+              <Input id="na-parentName" invalid={!!fieldErr("na-parentName")}
+                placeholder="Required for Adolescent / Child" value={form.parentName}
+                onBlur={() => v.touch("na-parentName")}
+                onChange={(e) => setForm({ ...form, parentName: e.target.value })} />
             </Field>
           )}
           {needsGuardian && (
-            <Field label="Guardian's name" hint="Optional">
-              <Input placeholder="Optional" value={form.guardianName} onChange={(e) => setForm({ ...form, guardianName: e.target.value })} />
+            <Field label="Guardian's name" hint="Optional" htmlFor="na-guardianName">
+              <Input id="na-guardianName" placeholder="Optional" value={form.guardianName}
+                onChange={(e) => setForm({ ...form, guardianName: e.target.value })} />
             </Field>
           )}
 
-          <Field label="WhatsApp number">
-            <Input inputMode="tel" placeholder="e.g. 98400 11223" value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
+          <Field label="WhatsApp number" required htmlFor="na-whatsapp" error={fieldErr("na-whatsapp")}>
+            <Input id="na-whatsapp" invalid={!!fieldErr("na-whatsapp")}
+              inputMode="tel" placeholder="e.g. 98400 11223" value={form.whatsapp}
+              onBlur={() => v.touch("na-whatsapp")}
+              onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
           </Field>
         </>
       )}
 
       {req && !isInterest && (
-        <Field label="Advance"
+        <Field label="Advance" required htmlFor="na-advance" error={fieldErr("na-advance")}
           hint={req.kind === "full" ? req.reason : `Minimum advance for ${effCategory}: ${money(req.amount)}`}>
-          <Input inputMode="numeric" placeholder={String(req.amount)} value={form.advance} onChange={(e) => setForm({ ...form, advance: e.target.value, paidCapsuleAmount: "" })} />
+          <Input id="na-advance" invalid={!!fieldErr("na-advance")}
+            inputMode="numeric" placeholder={String(req.amount)} value={form.advance}
+            onBlur={() => v.touch("na-advance")}
+            onChange={(e) => setForm({ ...form, advance: e.target.value, paidCapsuleAmount: "" })} />
         </Field>
       )}
 
-      <Field label="Tags" hint="Select any that apply — shown to the counsellor under the client's name.">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+      <Field label="Tags" required htmlFor="na-tags" error={fieldErr("na-tags")}
+        hint="Select any that apply — shown to the counsellor under the client's name.">
+        <div id="na-tags" tabIndex={-1} role="group" aria-label="Tags"
+          style={{ display: "flex", flexWrap: "wrap", gap: 7, outline: "none" }}>
           {tagOptions.map((tg) => {
             const on = (form.tags || []).includes(tg.code);
             return (
               <button key={tg.code}
-                onClick={() => setForm({
+                onClick={() => { setForm({
                   ...form,
                   tags: on ? form.tags.filter((c) => c !== tg.code) : [...(form.tags || []), tg.code],
-                })}
+                }); v.touch("na-tags"); }}
                 style={{
                   padding: "6px 11px", fontSize: 12, borderRadius: 999, cursor: "pointer",
                   border: `1px solid ${on ? "#111" : C.line}`, background: on ? "#111" : "#fff", color: on ? "#fff" : C.mid,
@@ -4380,9 +4623,10 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       </Field>
 
       {!isInterest && (
-        <Field label="Advance payment" hint={isAdmin ? "Upload proof, or mark it paid directly." : "Required — upload proof of the advance payment."}>
-          <input type="file" accept="image/*"
-            onChange={(e) => { const f2 = e.target.files && e.target.files[0]; setForm({ ...form, paymentScreenshotName: f2 ? f2.name : "" }); }}
+        <Field label="Advance payment" required={!isAdmin} htmlFor="na-screenshot" error={fieldErr("na-screenshot")}
+          hint={isAdmin ? "Upload proof, or mark it paid directly." : "Required — upload proof of the advance payment."}>
+          <input id="na-screenshot" type="file" accept="image/*"
+            onChange={(e) => { const f2 = e.target.files && e.target.files[0]; setForm({ ...form, paymentScreenshotName: f2 ? f2.name : "" }); v.touch("na-screenshot"); }}
             style={{ fontSize: 13 }} />
           {form.paymentScreenshotName && <div style={{ fontSize: 12, color: C.mid, marginTop: 6 }}>Attached: {form.paymentScreenshotName}</div>}
 
@@ -4413,7 +4657,8 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       </Field>
       </TimelineStep>
 
-      {err && <div style={{ fontSize: 13, color: "#b42318", marginTop: 4 }}>{err}</div>}
+      {/* Errors now render on their own fields, and the summary rides with
+          the footer — see `notice` on the Sheet above. */}
     </Sheet>
   );
 }
@@ -5578,13 +5823,20 @@ function NewCounsellorSheet({ open, onClose, data, act, defaultNuLancer, onCreat
     probationFrom: ymd(new Date()), probationTo: (() => { const d = new Date(); d.setDate(d.getDate() + 90); return ymd(d); })(),
   });
   const [form, setForm] = useState(blankForm());
-  useEffect(() => { if (open) setForm(blankForm()); }, [open]);
+  // Declared before the early return: hooks cannot sit behind one.
+  const rules = useMemo(() => [
+    { id: "nc-name", label: "Name", test: (f) => !!(f.name || "").trim(), message: "Enter the counsellor's name." },
+  ], []);
+  const v = useFormValidation(rules, form);
+  useEffect(() => { if (open) { setForm(blankForm()); v.reset(); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!open) return null;
   const isOwnerType = form.type === "Owner";
   const isNuLancerType = form.type === "NuLancer";
 
   const submit = () => {
-    if (!form.name.trim()) return;
+    // This used to be a bare `return` — the button simply did nothing, with
+    // no indication why.
+    if (!v.attemptSubmit()) return;
     act.addCounsellor({ ...form, isNuLancer: isNuLancerType, isOwner: isOwnerType, role: isOwnerType ? "Owner" : form.role });
     onClose();
     if (onCreated) onCreated();
@@ -5592,6 +5844,7 @@ function NewCounsellorSheet({ open, onClose, data, act, defaultNuLancer, onCreat
 
   return (
     <Sheet open onClose={onClose} title="New Counsellor"
+      notice={<ErrorSummary errors={v.visibleErrors} />}
       footer={<><Btn full onClick={onClose}>Cancel</Btn>
         <Btn full kind="solid" onClick={submit}>{isOwnerType ? "Save" : "Create TPIN"}</Btn></>}>
       <Field label="Counsellor Type">
@@ -5605,7 +5858,11 @@ function NewCounsellorSheet({ open, onClose, data, act, defaultNuLancer, onCreat
           ))}
         </div>
       </Field>
-      <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+      <Field label="Name" required htmlFor="nc-name" error={v.showFor("nc-name")}>
+        <Input id="nc-name" invalid={!!v.showFor("nc-name")} value={form.name}
+          onBlur={() => v.touch("nc-name")}
+          onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      </Field>
       {!isOwnerType && (
         <Field label="Role"><Input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} /></Field>
       )}
