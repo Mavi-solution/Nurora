@@ -12,6 +12,7 @@ import {
   loadClients, loadAppointments, upsertClientRow, upsertAppointmentRow,
   seedClientsAndAppointmentsIfEmpty, subscribeClients, subscribeAppointments,
 } from "@/lib/clients-appointments-sync";
+import { loadSettings, saveSettings, seedSettingsIfEmpty, subscribeSettings } from "@/lib/settings-sync";
 
 // Runs the instant this script loads — before React mounts or paints anything —
 // because a viewport fix applied only after first paint is often too late for
@@ -7979,6 +7980,53 @@ export default function App() {
       for (const a of next) if (prevById.get(a.id) !== a) upsertAppointmentRow(a);
       // No delete path: cancelling sets status, it never removes the row.
     }, 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  /*
+   * Practice settings, shared across every device. One row, so no
+   * bootstrap ordering to worry about and no delete path at all — the
+   * closest thing to a delete here is an admin clearing a field, which
+   * is still just a save.
+   */
+  const remoteSettingsRef = useRef(null);
+  const settingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let shared = await loadSettings();
+      if (!shared) {
+        const seeded = await seedSettingsIfEmpty(data.settings);
+        if (seeded) shared = await loadSettings();
+      }
+      if (!alive || !shared) return;
+      remoteSettingsRef.current = shared;
+      setData((d) => (d ? { ...d, settings: shared } : d));
+    })();
+
+    const unsubscribe = subscribeSettings((settings) => {
+      remoteSettingsRef.current = settings;
+      setData((d) => (d ? { ...d, settings } : d));
+    });
+
+    return () => { alive = false; unsubscribe(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const settingsPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const next = data.settings;
+    const prev = settingsPrevRef.current;
+    settingsPrevRef.current = next;
+    if (!prev || prev === next) return;
+    if (next === remoteSettingsRef.current) return;
+
+    const t = setTimeout(() => saveSettings(next), 500);
     return () => clearTimeout(t);
   }, [ready, data]);
 
