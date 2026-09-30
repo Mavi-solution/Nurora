@@ -3,6 +3,11 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import NuroraLogin from "./nurora-login";
 import { getSupabase } from "@/lib/supabase";
+import {
+  loadCounsellors, findCounsellorByEmail, upsertCounsellorRow,
+  deleteCounsellorRow, seedCounsellorsIfEmpty, subscribeCounsellors,
+  linkCounsellorToProfile,
+} from "@/lib/counsellors-sync";
 
 // Runs the instant this script loads — before React mounts or paints anything —
 // because a viewport fix applied only after first paint is often too late for
@@ -195,19 +200,46 @@ async function resolveIdentity(session, data) {
 
   if (profile?.is_admin) return { user: { role: "admin", name, email }, patch: null };
 
-  const existing = (data.counsellors || []).find(
-    (c) => (c.email || "").toLowerCase() === email && email !== ""
-  );
+  // Read from the shared table, not this browser's local `data` — the
+  // whole point is that the answer has to be the same regardless of
+  // which device is asking. An admin who pre-creates a counsellor on
+  // their own phone, and that counsellor signing up on theirs, must
+  // land on the same record; scanning local state here is exactly what
+  // made that impossible before.
+  const existing = email ? await findCounsellorByEmail(email) : null;
   if (existing) {
+    // First sign-in for a counsellor an admin already created: link the
+    // row to this account. Without this, RLS never has a "this is your
+    // own row" to match against, and every future edit of their own
+    // details would be silently rejected as someone else's row.
+    if (!existing.profileId && authUser.id) {
+      // Awaited: the diff-sync effect will shortly upsert this same row
+      // under RLS's "profile_id = auth.uid()" clause, which needs the
+      // link to already exist in the database, not just on this object.
+      await linkCounsellorToProfile(existing.id, authUser.id);
+      existing.profileId = authUser.id;
+    }
     return {
       user: { role: "resource", name: existing.name, counsellorId: existing.id, isNuLancer: !!existing.isNuLancer, email },
-      patch: null,
+      // The record living on the shared table might not be in this
+      // device's local state yet — every screen below looks it up by id
+      // in `data.counsellors`, so it has to land there before `user` is
+      // set, not just be true in Supabase.
+      patch: (d) => ({
+        ...d,
+        counsellors: d.counsellors.some((c) => c.id === existing.id)
+          ? d.counsellors.map((c) => (c.id === existing.id ? existing : c))
+          : [...d.counsellors, existing],
+      }),
     };
   }
 
   const created = counsellorFromAccount(name, email, !!profile?.is_nulancer);
   return {
     user: { role: "resource", name: created.name, counsellorId: created.id, isNuLancer: created.isNuLancer, email },
+    // New, so it also needs to be written to the shared table — the
+    // diff-sync effect below does that the moment it sees this array
+    // change, the same as it does for every other counsellor edit.
     patch: (d) => ({ ...d, counsellors: [...d.counsellors, created] }),
   };
 }
@@ -7760,6 +7792,83 @@ export default function App() {
     });
     return () => sub?.subscription?.unsubscribe();
   }, []);
+
+  /*
+   * The counsellor roster, shared across every device — see
+   * counsellors-sync.js and the 0001_counsellors migration.
+   *
+   * `remoteCounsellorsRef` holds whatever array this device last SET
+   * because a remote source said so (the initial load, or a realtime
+   * event) rather than because someone edited something here. The
+   * outbound sync effect below compares against it to tell "I need to
+   * push this" apart from "this just arrived, pushing it back would be
+   * an echo" — without that check, every realtime update would
+   * round-trip straight back out to Supabase.
+   */
+  const remoteCounsellorsRef = useRef(null);
+  const counsellorsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || counsellorsLoadedRef.current) return;
+    counsellorsLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let shared = await loadCounsellors();
+      if (shared && shared.length === 0) {
+        // First device to sign in after this shipped: what's already in
+        // this browser becomes everyone's shared starting point. Anyone
+        // else signing in a moment later reads it back from Supabase
+        // instead of racing to seed their own copy over it.
+        const seeded = await seedCounsellorsIfEmpty(data.counsellors);
+        if (seeded) shared = await loadCounsellors();
+      }
+      if (!alive || !shared) return;
+      remoteCounsellorsRef.current = shared;
+      setData((d) => (d ? { ...d, counsellors: shared } : d));
+    })();
+
+    const unsubscribe = subscribeCounsellors((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = kind === "delete"
+          ? d.counsellors.filter((c) => c.id !== row.id)
+          : d.counsellors.some((c) => c.id === row.id)
+            ? d.counsellors.map((c) => (c.id === row.id ? row : c))
+            : [...d.counsellors, row];
+        remoteCounsellorsRef.current = next;
+        return { ...d, counsellors: next };
+      });
+    });
+
+    return () => { alive = false; unsubscribe(); };
+  }, [session, ready, data]);
+
+  // Any local add/edit/delete of a counsellor — from any of the ~10 call
+  // sites in `act` below — changes this array's reference. Diff it
+  // against what was there before and push exactly the rows that moved,
+  // debounced the same way the localStorage write already is.
+  const counsellorsPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const next = data.counsellors;
+    const prev = counsellorsPrevRef.current;
+    counsellorsPrevRef.current = next;
+    if (!prev || prev === next) return;
+    if (next === remoteCounsellorsRef.current) return; // just absorbed a remote update — nothing to push back
+
+    const t = setTimeout(() => {
+      const prevById = new Map(prev.map((c) => [c.id, c]));
+      const nextById = new Map(next.map((c) => [c.id, c]));
+      for (const [id, c] of nextById) {
+        if (prevById.get(id) !== c) upsertCounsellorRow(c);
+      }
+      for (const id of prevById.keys()) {
+        if (!nextById.has(id)) deleteCounsellorRow(id);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
 
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
