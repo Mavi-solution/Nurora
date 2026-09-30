@@ -2207,6 +2207,7 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
   const [form, setForm] = useState(null);
   const [saved, setSaved] = useState(false);
   const [newItemText, setNewItemText] = useState("");
+  const [itemErr, setItemErr] = useState("");
   const linkedAppt = appointmentId && data ? data.appointments.find((a) => a.id === appointmentId) : null;
   const linkedCounsellor = linkedAppt && data ? data.counsellors.find((c) => c.id === linkedAppt.counsellorId) : null;
   useEffect(() => {
@@ -2239,6 +2240,7 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
       });
       setSaved(false);
       setNewItemText("");
+      setItemErr("");
     }
   }, [open, client]);
 
@@ -2347,13 +2349,18 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <Input value={newItemText} onChange={(e) => setNewItemText(e.target.value)} placeholder="e.g. Journaling worksheet" />
+          <Input value={newItemText} invalid={!!itemErr}
+            onChange={(e) => { setNewItemText(e.target.value); if (itemErr) setItemErr(""); }}
+            placeholder="e.g. Journaling worksheet" />
           <Btn onClick={() => {
-            if (!newItemText.trim()) return;
+            // Used to be `if (!newItemText.trim()) return;` — pressing Add
+            // more on an empty box did nothing, with no sign why.
+            if (!newItemText.trim()) { setItemErr("Type something to add first."); return; }
             set({ thingsToSend: [...form.thingsToSend, { id: uid("tts"), label: newItemText.trim(), done: false }] });
-            setNewItemText("");
+            setNewItemText(""); setItemErr("");
           }}>Add more</Btn>
         </div>
+        {itemErr && <div role="alert" style={{ fontSize: 11.5, color: "#b42318", marginTop: 6 }}>{itemErr}</div>}
         <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>
           These get sent (and checked off) from Follow-up &amp; Commitments in the hamburger menu — checking one there actually opens WhatsApp with that item, so it can't get ticked without something being sent.
         </div>
@@ -2391,7 +2398,19 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
 function NubillsPasteSheet({ open, onClose, data, act, user, appointmentId }) {
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
-  useEffect(() => { if (open) { setText(""); setErr(""); } }, [open]);
+
+  // Before the early return. The second rule only makes sense once there is
+  // text to have parsed — a blank box should say "paste it first", not
+  // "couldn't find anything in this" about text that was never entered.
+  const rules = useMemo(() => [
+    { id: "nb-text", label: "Billing text", test: (f) => !!f.text.trim(), message: "Paste the billing text first." },
+    { id: "nb-text", label: "Billing text", when: (f) => !!f.text.trim(),
+      test: (f) => { const p = parseBillText(f.text); return !!(p.clientName || p.billNo || p.totalAmount); },
+      message: "Couldn't find any recognizable fields in this text — check it matches the usual format." },
+  ], []);
+  const v = useFormValidation(rules, { text });
+
+  useEffect(() => { if (open) { setText(""); setErr(""); v.reset(); } /* eslint-disable-line react-hooks/exhaustive-deps */ }, [open]);
   if (!open) return null;
 
   const preview = text.trim() ? parseBillText(text) : null;
@@ -2416,11 +2435,9 @@ function NubillsPasteSheet({ open, onClose, data, act, user, appointmentId }) {
   };
 
   const submit = () => {
-    if (!text.trim()) return setErr("Paste the billing text first.");
+    setErr("");
+    if (!v.attemptSubmit()) return;
     const parsed = parseBillText(text);
-    if (!parsed.clientName && !parsed.billNo && !parsed.totalAmount) {
-      return setErr("Couldn't find any recognizable fields in this text — check it matches the usual format.");
-    }
     try {
       const withContext = { ...parsed };
       if (appointmentId) withContext.appointmentId = appointmentId;
@@ -2439,6 +2456,14 @@ function NubillsPasteSheet({ open, onClose, data, act, user, appointmentId }) {
 
   return (
     <Sheet open onClose={onClose} title="Add to Nubills"
+      notice={<>
+        <ErrorSummary errors={v.visibleErrors} />
+        {err && <div role="alert" style={{
+          background: "#fdf2f1", border: "1px solid #f3d4d0", borderRadius: 12,
+          padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
+          marginTop: v.visibleErrors.length ? 8 : 0,
+        }}>{err}</div>}
+      </>}
       footer={<>
         <Btn full onClick={onClose}>Cancel</Btn>
         <Btn full kind="solid" onClick={submit}>Save bill</Btn>
@@ -2456,10 +2481,12 @@ function NubillsPasteSheet({ open, onClose, data, act, user, appointmentId }) {
           <img src={data.settings.paymentQrImage} alt="Payment QR" style={{ width: 160, height: 160, borderRadius: 16, border: `1px solid ${C.line}`, objectFit: "cover" }} />
         </div>
       )}
-      <Field label="Billing text">
-        <textarea value={text} onChange={(e) => { setText(e.target.value); setErr(""); }}
+      <Field label="Billing text" required htmlFor="nb-text" error={v.showFor("nb-text")}>
+        <textarea id="nb-text" value={text}
+          onBlur={() => v.touch("nb-text")}
+          onChange={(e) => { setText(e.target.value); setErr(""); }}
           rows={8} placeholder="Hi, the session has got over and the client has paid…"
-          style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.5 }} />
+          style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.5, ...(v.showFor("nb-text") ? { borderColor: "#e4a49e" } : null) }} />
       </Field>
       <Btn onClick={doPaste} icon={<Copy size={14} strokeWidth={1.6} />}>Paste from clipboard</Btn>
 
@@ -2492,7 +2519,6 @@ function NubillsPasteSheet({ open, onClose, data, act, user, appointmentId }) {
           </div>
         </>
       )}
-      {err && <div style={{ fontSize: 12.5, color: "#b42318", marginTop: 10 }}>{err}</div>}
     </Sheet>
   );
 }
@@ -2684,7 +2710,21 @@ function ReviewSheet({ open, onClose, act, data }) {
   const [date, setDate] = useState(ymd(new Date()));
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
-  useEffect(() => { if (open) { setClientId(null); setRating(5); setDate(ymd(new Date())); setText(""); setErr(""); } }, [open]);
+
+  // Before the early return: same two checks as before
+  // (`if (!clientId) return setErr(...); if (!text.trim()) return setErr(...);`),
+  // now both evaluated together instead of the second only being reachable
+  // once the first was already fixed.
+  const rules = useMemo(() => [
+    { id: "rv-client", label: "Client", test: (f) => !!f.clientId, message: "Select which client this review is from." },
+    { id: "rv-text", label: "Review text", test: (f) => !!f.text.trim(), message: "Paste or type the review text first." },
+  ], []);
+  const v = useFormValidation(rules, { clientId, text });
+
+  useEffect(() => {
+    if (open) { setClientId(null); setRating(5); setDate(ymd(new Date())); setText(""); setErr(""); v.reset(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   if (!open) return null;
 
   const doPaste = async () => {
@@ -2699,8 +2739,8 @@ function ReviewSheet({ open, onClose, act, data }) {
   };
 
   const submit = () => {
-    if (!clientId) return setErr("Select which client this review is from.");
-    if (!text.trim()) return setErr("Paste or type the review text first.");
+    setErr("");
+    if (!v.attemptSubmit()) return;
     const client = data.clients.find((c) => c.id === clientId);
     const counsellorName = client?.persona?.counsellorName || "";
     const matchedCounsellor = data.counsellors.find((c) => counsellorName && counsellorName.toLowerCase().includes(c.name.toLowerCase()));
@@ -2715,17 +2755,24 @@ function ReviewSheet({ open, onClose, act, data }) {
 
   return (
     <Sheet open onClose={onClose} title="Add Google review"
+      notice={<ErrorSummary errors={v.visibleErrors} />}
       footer={<><Btn full onClick={onClose}>Cancel</Btn><Btn full kind="solid" onClick={submit}>Save review</Btn></>}>
-      <Field label="Client"><ClientPicker data={data} value={clientId} onChange={setClientId} /></Field>
+      <Field label="Client" required htmlFor="rv-client" error={v.showFor("rv-client")}>
+        <div id="rv-client" tabIndex={-1} onBlur={() => v.touch("rv-client")} style={{ outline: "none" }}>
+          <ClientPicker data={data} value={clientId} onChange={(id) => { setClientId(id); v.touch("rv-client"); }} />
+        </div>
+      </Field>
       <Field label="Rating"><StarPicker value={rating} onChange={setRating} /></Field>
       <Field label="Date of review"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      <Field label="Review text">
-        <textarea value={text} onChange={(e) => { setText(e.target.value); setErr(""); }}
+      <Field label="Review text" required htmlFor="rv-text" error={v.showFor("rv-text")}>
+        <textarea id="rv-text" value={text}
+          onBlur={() => v.touch("rv-text")}
+          onChange={(e) => { setText(e.target.value); setErr(""); }}
           rows={6} placeholder="Paste the review text here…"
-          style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.5 }} />
+          style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.5, ...(v.showFor("rv-text") ? { borderColor: "#e4a49e" } : null) }} />
       </Field>
       <Btn onClick={doPaste} icon={<Copy size={14} strokeWidth={1.6} />}>Paste from clipboard</Btn>
-      {err && <div style={{ fontSize: 12.5, color: "#b42318", marginTop: 10 }}>{err}</div>}
+      {err && <div role="alert" style={{ fontSize: 12.5, color: "#b42318", marginTop: 10 }}>{err}</div>}
     </Sheet>
   );
 }
@@ -5432,6 +5479,7 @@ function EditDaySlotsSheet({ counsellor, date, onClose, data, act, user, onBookS
   const [times, setTimes] = useState([]);
   const [newTime, setNewTime] = useState("");
   const [comment, setComment] = useState("");
+  const [slotErr, setSlotErr] = useState("");
   const isAdmin = user.role === "admin";
 
   useEffect(() => {
@@ -5439,6 +5487,7 @@ function EditDaySlotsSheet({ counsellor, date, onClose, data, act, user, onBookS
       setTimes(slotsForDate(counsellor, date));
       setNewTime("");
       setComment((counsellor.dayExceptions || {})[date]?.comment || "");
+      setSlotErr("");
     }
   }, [counsellor, date]);
 
@@ -5501,9 +5550,18 @@ function EditDaySlotsSheet({ counsellor, date, onClose, data, act, user, onBookS
           })}
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <Input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} />
-          <Btn onClick={() => { if (!newTime || times.includes(newTime)) return; setTimes([...times, newTime]); setNewTime(""); }}>Add slot</Btn>
+          <Input type="time" invalid={!!slotErr} value={newTime}
+            onChange={(e) => { setNewTime(e.target.value); if (slotErr) setSlotErr(""); }} />
+          <Btn onClick={() => {
+            // Used to be `if (!newTime || times.includes(newTime)) return;` —
+            // Add slot did nothing, whether the time box was empty or the
+            // time was already in the list, with no way to tell which.
+            if (!newTime) { setSlotErr("Choose a time first."); return; }
+            if (times.includes(newTime)) { setSlotErr("That time is already in the list."); return; }
+            setTimes([...times, newTime]); setNewTime(""); setSlotErr("");
+          }}>Add slot</Btn>
         </div>
+        {slotErr && <div role="alert" style={{ fontSize: 11.5, color: "#b42318", marginTop: 6 }}>{slotErr}</div>}
       </Field>
 
       <div style={{
