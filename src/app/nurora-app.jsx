@@ -717,6 +717,17 @@ function isValidMobileNumber(raw) {
 }
 const INVALID_MOBILE_MESSAGE = "Enter a valid 10-digit mobile number.";
 
+// Applied on every keystroke in a phone field, not just at blur/submit:
+// validation alone caught the garbage before it could be SAVED, but the
+// box itself still showed it happily while it was being typed, letters
+// and all. A phone number has no legitimate use for a letter, so those
+// never make it into the field at all now — same allowance as
+// normalizeMobileDigits above (digits, spaces, a leading +), just
+// enforced as it's typed rather than only after the fact.
+function sanitizePhoneInput(raw) {
+  return (raw || "").replace(/[^\d\s+]/g, "");
+}
+
 // Shows the personalize-message template with this appointment's client name
 // and date filled in, plus a Copy button. Copying is what turns the step-1
 // icon in MilestoneBar its themed color, via onCopied.
@@ -2374,7 +2385,7 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
       <Field label="Age"><Input inputMode="numeric" value={form.age} onChange={(e) => set({ age: e.target.value })} /></Field>
       <Field label="WhatsApp Number" error={whatsappErr}>
         <Input inputMode="tel" invalid={!!whatsappErr} value={form.whatsapp}
-          onChange={(e) => { set({ whatsapp: e.target.value }); if (whatsappErr) setWhatsappErr(""); }} />
+          onChange={(e) => { set({ whatsapp: sanitizePhoneInput(e.target.value) }); if (whatsappErr) setWhatsappErr(""); }} />
       </Field>
       {form.status === "New" && (
         <>
@@ -4733,7 +4744,7 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
             <Input id="na-whatsapp" invalid={!!fieldErr("na-whatsapp")}
               inputMode="tel" placeholder="e.g. 98400 11223" value={form.whatsapp}
               onBlur={() => v.touch("na-whatsapp")}
-              onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
+              onChange={(e) => setForm({ ...form, whatsapp: sanitizePhoneInput(e.target.value) })} />
           </Field>
         </>
       )}
@@ -5130,7 +5141,7 @@ function MyDetailsSheet({ open, onClose, counsellor, act, data }) {
       <Field label="Mobile No." error={phoneTouched && !phoneValid ? INVALID_MOBILE_MESSAGE : null}>
         <Input inputMode="tel" invalid={phoneTouched && !phoneValid} value={form.personalPhone}
           onBlur={() => setPhoneTouched(true)}
-          onChange={(e) => setForm({ ...form, personalPhone: e.target.value })} />
+          onChange={(e) => setForm({ ...form, personalPhone: sanitizePhoneInput(e.target.value) })} />
       </Field>
       <Field label="Aadhar Upload">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -5838,7 +5849,7 @@ function ClientsScreen({ data, act, user, go }) {
         <Field label="Age"><Input inputMode="numeric" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} /></Field>
         <Field label="Phone">
           <Input inputMode="tel" invalid={!!form.phone.trim() && !isValidMobileNumber(form.phone)}
-            value={form.phone} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setErr(""); }} />
+            value={form.phone} onChange={(e) => { setForm({ ...form, phone: sanitizePhoneInput(e.target.value) }); setErr(""); }} />
         </Field>
         <Field label="Email"><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         <Field label="Notes"><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
@@ -5911,7 +5922,7 @@ function ClientDetail({ data, act, id, user }) {
         <Field label="Age"><Input value={form.age || ""} onChange={(e) => setForm({ ...form, age: e.target.value })} /></Field>
         <Field label="Phone">
           <Input inputMode="tel" invalid={!!(form.phone || "").trim() && !isValidMobileNumber(form.phone)}
-            value={form.phone || ""} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setErr(""); }} />
+            value={form.phone || ""} onChange={(e) => { setForm({ ...form, phone: sanitizePhoneInput(e.target.value) }); setErr(""); }} />
         </Field>
         <Field label="Email"><Input value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         <Field label="Notes"><Input value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
@@ -6331,7 +6342,7 @@ function CounsellorDetail({ data, act, id, user, go }) {
                   <div style={{ flex: 1 }}>
                     <Field label="Add Business Phone No.">
                       <Input inputMode="tel" invalid={!!businessPhoneDraft.trim() && !isValidMobileNumber(businessPhoneDraft)}
-                        value={businessPhoneDraft} onChange={(e) => setBusinessPhoneDraft(e.target.value)} />
+                        value={businessPhoneDraft} onChange={(e) => setBusinessPhoneDraft(sanitizePhoneInput(e.target.value))} />
                     </Field>
                   </div>
                   <Btn disabled={!isValidMobileNumber(businessPhoneDraft)}
