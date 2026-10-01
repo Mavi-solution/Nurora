@@ -12,6 +12,15 @@ import {
   loadClients, loadAppointments, upsertClientRow, upsertAppointmentRow,
   seedClientsAndAppointmentsIfEmpty, subscribeClients, subscribeAppointments,
 } from "@/lib/clients-appointments-sync";
+import { loadSettings, saveSettings, seedSettingsIfEmpty, subscribeSettings } from "@/lib/settings-sync";
+import {
+  loadInvoices, loadSessions, upsertInvoiceRow, upsertSessionRow,
+  seedSessionsAndInvoicesIfEmpty, subscribeInvoices, subscribeSessions,
+} from "@/lib/sessions-invoices-sync";
+import {
+  loadLeaves, loadHolidays, upsertLeaveRow, deleteLeaveRow, upsertHolidayRow, deleteHolidayRow,
+  seedLeavesAndHolidaysIfEmpty, subscribeLeaves, subscribeHolidays,
+} from "@/lib/leaves-holidays-sync";
 
 // Runs the instant this script loads — before React mounts or paints anything —
 // because a viewport fix applied only after first paint is often too late for
@@ -239,11 +248,23 @@ async function resolveIdentity(session, data) {
   }
 
   const created = counsellorFromAccount(name, email, !!profile?.is_nulancer);
+  created.profileId = authUser.id || null;
+  // Written to the shared table right here, awaited, rather than left
+  // for the generic diff-sync effect to notice and push up a moment
+  // later. That gap is exactly wide enough for a problem: the
+  // counsellors-bootstrap effect elsewhere in this file also loads from
+  // the shared table around sign-in time, on its own schedule, with no
+  // knowledge of what resolveIdentity just did locally. If that load
+  // lands after this record exists locally but before it has reached
+  // Supabase, it overwrites `data.counsellors` with a copy of the
+  // shared table that doesn't have it yet — wiping out someone's own
+  // record on their own first sign-in. Writing it here first closes
+  // that gap: the record exists on the shared side before `user` is
+  // ever handed back, so no load that runs after this point can fail
+  // to find it.
+  await upsertCounsellorRow(created);
   return {
     user: { role: "resource", name: created.name, counsellorId: created.id, isNuLancer: created.isNuLancer, email },
-    // New, so it also needs to be written to the shared table — the
-    // diff-sync effect below does that the moment it sees this array
-    // change, the same as it does for every other counsellor edit.
     patch: (d) => ({ ...d, counsellors: [...d.counsellors, created] }),
   };
 }
@@ -673,6 +694,28 @@ function MilestoneBar({ value, onChange, messageSent, onOpenMessage, callMade, o
     </div>
   );
 }
+
+/* -------------------------------------------------------- phone numbers */
+// Every phone/WhatsApp field in this app has always meant the same
+// thing: a bare 10-digit Indian mobile number, entered with no country
+// code — the two places that build a wa.me link already assume +91 and
+// prepend it themselves. Spaces, dashes, and a country code someone
+// typed anyway (+91, 91, or a leading 0) are tolerated and stripped;
+// what's left has to be exactly 10 digits starting 6-9, which is what
+// actually catches something like "96586956859685968959ddsdsdsds" —
+// letters fail outright, and 20-odd digits fails the length check even
+// before that. Nothing here rejects an EMPTY value; whether the field
+// is required at all is a separate, per-form decision.
+function normalizeMobileDigits(raw) {
+  let digits = (raw || "").replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  else if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  return digits;
+}
+function isValidMobileNumber(raw) {
+  return /^[6-9]\d{9}$/.test(normalizeMobileDigits(raw));
+}
+const INVALID_MOBILE_MESSAGE = "Enter a valid 10-digit mobile number.";
 
 // Shows the personalize-message template with this appointment's client name
 // and date filled in, plus a Copy button. Copying is what turns the step-1
@@ -2244,6 +2287,7 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
   const [saved, setSaved] = useState(false);
   const [newItemText, setNewItemText] = useState("");
   const [itemErr, setItemErr] = useState("");
+  const [whatsappErr, setWhatsappErr] = useState("");
   const linkedAppt = appointmentId && data ? data.appointments.find((a) => a.id === appointmentId) : null;
   const linkedCounsellor = linkedAppt && data ? data.counsellors.find((c) => c.id === linkedAppt.counsellorId) : null;
   useEffect(() => {
@@ -2277,6 +2321,7 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
       setSaved(false);
       setNewItemText("");
       setItemErr("");
+      setWhatsappErr("");
     }
   }, [open, client]);
 
@@ -2284,6 +2329,13 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
   const set = (patch) => setForm({ ...form, ...patch });
 
   const submit = () => {
+    // WhatsApp stays optional here — see the note on PersonaSheet's other
+    // fields elsewhere in this file — but whatever's typed, if anything,
+    // has to actually look like a number rather than being saved as-is.
+    if (form.whatsapp.trim() && !isValidMobileNumber(form.whatsapp)) {
+      setWhatsappErr(INVALID_MOBILE_MESSAGE);
+      return;
+    }
     const priorDate = client.persona?.nextFollowUpDate || "";
     const dateChanged = form.nextFollowUpDate && form.nextFollowUpDate !== priorDate;
     const withDate = {
@@ -2320,7 +2372,10 @@ function PersonaSheet({ open, onClose, client, act, data, appointmentId }) {
       )}
 
       <Field label="Age"><Input inputMode="numeric" value={form.age} onChange={(e) => set({ age: e.target.value })} /></Field>
-      <Field label="WhatsApp Number"><Input inputMode="tel" value={form.whatsapp} onChange={(e) => set({ whatsapp: e.target.value })} /></Field>
+      <Field label="WhatsApp Number" error={whatsappErr}>
+        <Input inputMode="tel" invalid={!!whatsappErr} value={form.whatsapp}
+          onChange={(e) => { set({ whatsapp: e.target.value }); if (whatsappErr) setWhatsappErr(""); }} />
+      </Field>
       {form.status === "New" && (
         <>
           <Field label="Address"><Input value={form.address} onChange={(e) => set({ address: e.target.value })} /></Field>
@@ -4206,7 +4261,8 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       when: (f) => f.bookingKind !== "followup" && /child|adolescent/i.test(f.category || ""),
       test: (f) => !!(f.parentName || "").trim(), message: "Parent's name is required for this category." },
     { id: "na-whatsapp", label: "WhatsApp number", when: (f) => f.bookingKind !== "followup",
-      test: (f) => !!(f.whatsapp || "").trim(), message: "Enter a WhatsApp number." },
+      test: (f) => isValidMobileNumber(f.whatsapp),
+      message: (f) => (f.whatsapp || "").trim() ? INVALID_MOBILE_MESSAGE : "Enter a WhatsApp number." },
     { id: "na-advance", label: "Advance",
       when: (f) => f.bookingStatus !== "interest" && !!advanceReqFor(f),
       test: (f) => {
@@ -4986,10 +5042,11 @@ function MyDetailsSheet({ open, onClose, counsellor, act, data }) {
   const [step, setStep] = useState("form"); // form | otp | done
   const [otpConfirmed, setOtpConfirmed] = useState(false);
   const [mpin, setMpin] = useState(null);
+  const [phoneTouched, setPhoneTouched] = useState(false);
   useEffect(() => {
     if (open && counsellor) {
       setForm({ name: counsellor.name || "", dob: counsellor.dob || "", personalPhone: counsellor.personalPhone || "", aadharImage: counsellor.aadharImage || null, dateOfJoining: counsellor.dateOfJoining || "" });
-      setAgreed(false); setSignature(""); setStep("form"); setOtpConfirmed(false); setMpin(null);
+      setAgreed(false); setSignature(""); setStep("form"); setOtpConfirmed(false); setMpin(null); setPhoneTouched(false);
     }
   }, [open, counsellor]);
   if (!open || !counsellor || !form) return null;
@@ -4999,6 +5056,9 @@ function MyDetailsSheet({ open, onClose, counsellor, act, data }) {
   const agreeText = counsellor.agreementAgreeTextOverride || data.settings.agreementAgreeText || "I have read and agree to the terms of this agreement.";
   const age = ageFromDob(form.dob);
   const experience = experienceFromDoj(form.dateOfJoining);
+  // Optional — this counsellor may simply not have entered it yet — but
+  // whatever's there has to be a real number, not saved as typed.
+  const phoneValid = !form.personalPhone.trim() || isValidMobileNumber(form.personalPhone);
 
   const saveDetails = () => act.updateCounsellor(counsellor.id, { ...form, name: form.name.trim() || counsellor.name });
 
@@ -5044,9 +5104,13 @@ function MyDetailsSheet({ open, onClose, counsellor, act, data }) {
       footer={<>
         <Btn full onClick={onClose}>Cancel</Btn>
         {needsSignup ? (
-          <Btn full kind="solid" disabled={!agreed || !signature.trim()} onClick={() => setStep("otp")}>Next</Btn>
+          <Btn full kind="solid" disabled={!agreed || !signature.trim() || !phoneValid}
+            onClick={() => setStep("otp")}>Next</Btn>
         ) : (
-          <Btn full kind="solid" onClick={() => { saveDetails(); onClose(); }}>Save</Btn>
+          <Btn full kind="solid" onClick={() => {
+            if (!phoneValid) { setPhoneTouched(true); return; }
+            saveDetails(); onClose();
+          }}>Save</Btn>
         )}
       </>}>
       <label style={{ cursor: "pointer", display: "inline-block", marginBottom: 20 }}>
@@ -5063,7 +5127,11 @@ function MyDetailsSheet({ open, onClose, counsellor, act, data }) {
       <Field label="Role"><Input value={counsellor.role} disabled /></Field>
       <Field label="Date of Birth"><Input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></Field>
       {age != null && <div style={{ fontSize: 12, color: C.soft, marginTop: -12, marginBottom: 16 }}>Age: {age}</div>}
-      <Field label="Mobile No."><Input inputMode="tel" value={form.personalPhone} onChange={(e) => setForm({ ...form, personalPhone: e.target.value })} /></Field>
+      <Field label="Mobile No." error={phoneTouched && !phoneValid ? INVALID_MOBILE_MESSAGE : null}>
+        <Input inputMode="tel" invalid={phoneTouched && !phoneValid} value={form.personalPhone}
+          onBlur={() => setPhoneTouched(true)}
+          onChange={(e) => setForm({ ...form, personalPhone: e.target.value })} />
+      </Field>
       <Field label="Aadhar Upload">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {form.aadharImage ? (
@@ -5721,6 +5789,7 @@ function ClientsScreen({ data, act, user, go }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", age: "", phone: "", email: "", notes: "" });
+  const [err, setErr] = useState("");
   const list = data.clients.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));
 
   return (
@@ -5731,7 +5800,7 @@ function ClientsScreen({ data, act, user, go }) {
           style={{ border: "none", outline: "none", padding: "11px 0", fontSize: 14, width: "100%", fontFamily: FONT }} />
       </div>
 
-      <SectionLabel action={user.role === "admin" && <Pill icon={<Plus size={13} strokeWidth={1.6} />} onClick={() => { setForm({ name: "", age: "", phone: "", email: "", notes: "" }); setOpen(true); }}>Add client</Pill>}>
+      <SectionLabel action={user.role === "admin" && <Pill icon={<Plus size={13} strokeWidth={1.6} />} onClick={() => { setForm({ name: "", age: "", phone: "", email: "", notes: "" }); setErr(""); setOpen(true); }}>Add client</Pill>}>
         Clients
       </SectionLabel>
 
@@ -5753,11 +5822,24 @@ function ClientsScreen({ data, act, user, go }) {
       )}
 
       <Sheet open={open} onClose={() => setOpen(false)} title="Add client"
+        notice={err && <div role="alert" style={{
+          background: "#fdf2f1", border: "1px solid #f3d4d0", borderRadius: 12,
+          padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
+        }}>{err}</div>}
         footer={<><Btn full onClick={() => setOpen(false)}>Cancel</Btn>
-          <Btn full kind="solid" onClick={() => { if (!form.name.trim()) return; act.addClient(form); setOpen(false); }}>Save client</Btn></>}>
-        <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+          <Btn full kind="solid" onClick={() => {
+            // Used to be `if (!form.name.trim()) return;` — Save client did
+            // nothing at all if the name was empty, with no sign why.
+            if (!form.name.trim()) return setErr("Enter the client's name.");
+            if (form.phone.trim() && !isValidMobileNumber(form.phone)) return setErr(INVALID_MOBILE_MESSAGE);
+            act.addClient(form); setOpen(false);
+          }}>Save client</Btn></>}>
+        <Field label="Name"><Input value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setErr(""); }} /></Field>
         <Field label="Age"><Input inputMode="numeric" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} /></Field>
-        <Field label="Phone"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+        <Field label="Phone">
+          <Input inputMode="tel" invalid={!!form.phone.trim() && !isValidMobileNumber(form.phone)}
+            value={form.phone} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setErr(""); }} />
+        </Field>
         <Field label="Email"><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         <Field label="Notes"><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
       </Sheet>
@@ -5769,6 +5851,7 @@ function ClientDetail({ data, act, id, user }) {
   const c = data.clients.find((x) => x.id === id);
   const [edit, setEdit] = useState(false);
   const [form, setForm] = useState(c || {});
+  const [err, setErr] = useState("");
   if (!c) return <Empty text="This client no longer exists." />;
   const appts = data.appointments.filter((a) => a.clientId === id).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
   const invs = data.invoices.filter((i) => i.clientId === id);
@@ -5787,7 +5870,7 @@ function ClientDetail({ data, act, id, user }) {
       {c.notes && <Row label="Notes" value={c.notes} />}
 
       {user.role === "admin" && (
-        <div style={{ marginTop: 18 }}><Btn full onClick={() => { setForm(c); setEdit(true); }}>Edit client</Btn></div>
+        <div style={{ marginTop: 18 }}><Btn full onClick={() => { setForm(c); setErr(""); setEdit(true); }}>Edit client</Btn></div>
       )}
 
       <div style={{ fontSize: 13, color: C.soft, margin: "26px 0 12px" }}>History</div>
@@ -5815,11 +5898,21 @@ function ClientDetail({ data, act, id, user }) {
       </div>
 
       <Sheet open={edit} onClose={() => setEdit(false)} title="Edit client"
+        notice={err && <div role="alert" style={{
+          background: "#fdf2f1", border: "1px solid #f3d4d0", borderRadius: 12,
+          padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
+        }}>{err}</div>}
         footer={<><Btn full onClick={() => setEdit(false)}>Cancel</Btn>
-          <Btn full kind="solid" onClick={() => { act.updateClient(id, form); setEdit(false); }}>Save changes</Btn></>}>
+          <Btn full kind="solid" onClick={() => {
+            if ((form.phone || "").trim() && !isValidMobileNumber(form.phone)) return setErr(INVALID_MOBILE_MESSAGE);
+            act.updateClient(id, form); setEdit(false);
+          }}>Save changes</Btn></>}>
         <Field label="Name"><Input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
         <Field label="Age"><Input value={form.age || ""} onChange={(e) => setForm({ ...form, age: e.target.value })} /></Field>
-        <Field label="Phone"><Input value={form.phone || ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+        <Field label="Phone">
+          <Input inputMode="tel" invalid={!!(form.phone || "").trim() && !isValidMobileNumber(form.phone)}
+            value={form.phone || ""} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setErr(""); }} />
+        </Field>
         <Field label="Email"><Input value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         <Field label="Notes"><Input value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
       </Sheet>
@@ -6233,11 +6326,20 @@ function CounsellorDetail({ data, act, id, user, go }) {
             <Row label="Aadhar" value={c.aadharImage ? "Uploaded" : "Not added yet"} />
             <Row label="Date of Joining" value={c.dateOfJoining ? `${shortDate(c.dateOfJoining)}${experienceFromDoj(c.dateOfJoining) ? ` (${experienceFromDoj(c.dateOfJoining)})` : ""}` : "Not added yet"} />
             {!c.businessPhone && (
-              <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "flex-end" }}>
-                <div style={{ flex: 1 }}>
-                  <Field label="Add Business Phone No."><Input inputMode="tel" value={businessPhoneDraft} onChange={(e) => setBusinessPhoneDraft(e.target.value)} /></Field>
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div style={{ flex: 1 }}>
+                    <Field label="Add Business Phone No.">
+                      <Input inputMode="tel" invalid={!!businessPhoneDraft.trim() && !isValidMobileNumber(businessPhoneDraft)}
+                        value={businessPhoneDraft} onChange={(e) => setBusinessPhoneDraft(e.target.value)} />
+                    </Field>
+                  </div>
+                  <Btn disabled={!isValidMobileNumber(businessPhoneDraft)}
+                    onClick={() => { upd({ businessPhone: businessPhoneDraft.trim() }); setBusinessPhoneDraft(""); }}>Save</Btn>
                 </div>
-                <Btn disabled={!businessPhoneDraft.trim()} onClick={() => { upd({ businessPhone: businessPhoneDraft.trim() }); setBusinessPhoneDraft(""); }}>Save</Btn>
+                {!!businessPhoneDraft.trim() && !isValidMobileNumber(businessPhoneDraft) && (
+                  <div role="alert" style={{ fontSize: 11.5, color: "#b42318", marginTop: -12, marginBottom: 12 }}>{INVALID_MOBILE_MESSAGE}</div>
+                )}
               </div>
             )}
           </div>
@@ -7828,8 +7930,31 @@ export default function App() {
         if (seeded) shared = await loadCounsellors();
       }
       if (!alive || !shared) return;
-      remoteCounsellorsRef.current = shared;
-      setData((d) => (d ? { ...d, counsellors: shared } : d));
+      // Merged, not replaced outright: resolveIdentity writes a brand new
+      // counsellor to Supabase before it ever hands back `user`, but this
+      // read runs on its own schedule and can still win a race against
+      // that write's own local state update landing first. Keeping any
+      // local-only id this particular read doesn't know about yet means
+      // a stale read can never make someone's own just-created record
+      // vanish out from under them.
+      //
+      // `remoteCounsellorsRef` is deliberately set to `shared` itself,
+      // not to the merged result: in the ordinary case there's nothing
+      // to merge and the two are the same array, so the diff-sync effect
+      // below still recognises this as a remote echo and skips it, same
+      // as before. On the rare occasion there IS a survivor to merge,
+      // the two are no longer the same array on purpose — that survivor
+      // still needs pushing up, and this is what lets the diff-sync
+      // effect notice it rather than mistake this for an echo of
+      // something that was never actually written yet.
+      setData((d) => {
+        if (!d) return d;
+        const sharedIds = new Set(shared.map((c) => c.id));
+        const localOnly = d.counsellors.filter((c) => !sharedIds.has(c.id));
+        const merged = localOnly.length ? [...shared, ...localOnly] : shared;
+        remoteCounsellorsRef.current = shared;
+        return { ...d, counsellors: merged };
+      });
     })();
 
     const unsubscribe = subscribeCounsellors((kind, row) => {
@@ -7948,36 +8073,277 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, ready]);
 
+  /*
+   * Clients and appointments diff-sync together, on one timer — not two
+   * independent ones. Booking a new client and their first appointment
+   * is a single local update touching both arrays at once, and
+   * appointments.client_id is a foreign key: if the appointment's own
+   * upsert reached Supabase before the client's row actually existed
+   * there, the insert was rejected by that constraint and silently
+   * dropped — upsertAppointmentRow never surfaced the error, so the
+   * appointment just never made it to the shared table, invisible to
+   * every other device, with nothing in this device's own UI showing
+   * anything had gone wrong. Two separate 500ms timers gave that race
+   * a real, ordinary-sized window to lose; doing both kinds of push in
+   * one timeout, clients strictly before appointments, closes it.
+   */
   const clientsPrevRef = useRef(null);
+  const appointmentsPrevRef = useRef(null);
   useEffect(() => {
     if (!ready || !data) return;
-    const next = data.clients;
-    const prev = clientsPrevRef.current;
-    clientsPrevRef.current = next;
-    if (!prev || prev === next) return;
-    if (next === remoteClientsRef.current) return;
+    const nextClients = data.clients;
+    const nextAppts = data.appointments;
+    const prevClients = clientsPrevRef.current;
+    const prevAppts = appointmentsPrevRef.current;
+    clientsPrevRef.current = nextClients;
+    appointmentsPrevRef.current = nextAppts;
 
-    const t = setTimeout(() => {
-      const prevById = new Map(prev.map((c) => [c.id, c]));
-      for (const c of next) if (prevById.get(c.id) !== c) upsertClientRow(c);
-      // No delete path: a client is never removed, only ever added to or edited.
+    const clientsChanged = prevClients && prevClients !== nextClients && nextClients !== remoteClientsRef.current;
+    const apptsChanged = prevAppts && prevAppts !== nextAppts && nextAppts !== remoteAppointmentsRef.current;
+    if (!clientsChanged && !apptsChanged) return;
+
+    const t = setTimeout(async () => {
+      if (clientsChanged) {
+        const prevById = new Map(prevClients.map((c) => [c.id, c]));
+        await Promise.all(nextClients.filter((c) => prevById.get(c.id) !== c).map(upsertClientRow));
+        // No delete path: a client is never removed, only ever added to or edited.
+      }
+      if (apptsChanged) {
+        const prevById = new Map(prevAppts.map((a) => [a.id, a]));
+        // No delete path: cancelling sets status, it never removes the row.
+        for (const a of nextAppts) if (prevById.get(a.id) !== a) upsertAppointmentRow(a);
+      }
     }, 500);
     return () => clearTimeout(t);
   }, [ready, data]);
 
-  const appointmentsPrevRef = useRef(null);
+  /*
+   * Practice settings, shared across every device. One row, so no
+   * bootstrap ordering to worry about and no delete path at all — the
+   * closest thing to a delete here is an admin clearing a field, which
+   * is still just a save.
+   */
+  const remoteSettingsRef = useRef(null);
+  const settingsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let shared = await loadSettings();
+      if (!shared) {
+        const seeded = await seedSettingsIfEmpty(data.settings);
+        if (seeded) shared = await loadSettings();
+      }
+      if (!alive || !shared) return;
+      remoteSettingsRef.current = shared;
+      setData((d) => (d ? { ...d, settings: shared } : d));
+    })();
+
+    const unsubscribe = subscribeSettings((settings) => {
+      remoteSettingsRef.current = settings;
+      setData((d) => (d ? { ...d, settings } : d));
+    });
+
+    return () => { alive = false; unsubscribe(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const settingsPrevRef = useRef(null);
   useEffect(() => {
     if (!ready || !data) return;
-    const next = data.appointments;
-    const prev = appointmentsPrevRef.current;
-    appointmentsPrevRef.current = next;
+    const next = data.settings;
+    const prev = settingsPrevRef.current;
+    settingsPrevRef.current = next;
     if (!prev || prev === next) return;
-    if (next === remoteAppointmentsRef.current) return;
+    if (next === remoteSettingsRef.current) return;
+
+    const t = setTimeout(() => saveSettings(next), 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  /*
+   * Sessions and invoices, shared across every device. `endSession`
+   * creates one invoice and stamps its id onto one session in the same
+   * local update — same load/bootstrap/subscribe shape as counsellors,
+   * and the same one-timer, dependency-ordered diff-sync as clients and
+   * appointments, for the exact reason that one needed it: invoices
+   * before sessions, because sessions.invoice_id is a foreign key to a
+   * row that, at the moment of creation, is brand new.
+   */
+  const remoteInvoicesRef = useRef(null);
+  const remoteSessionsRef = useRef(null);
+  const sessionsInvoicesLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || sessionsInvoicesLoadedRef.current) return;
+    sessionsInvoicesLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let [sharedInvoices, sharedSessions] = await Promise.all([loadInvoices(), loadSessions()]);
+      if (sharedInvoices && sharedInvoices.length === 0) {
+        const seeded = await seedSessionsAndInvoicesIfEmpty(data.invoices, data.sessions);
+        if (seeded) [sharedInvoices, sharedSessions] = await Promise.all([loadInvoices(), loadSessions()]);
+      }
+      if (!alive) return;
+      if (sharedInvoices) remoteInvoicesRef.current = sharedInvoices;
+      if (sharedSessions) remoteSessionsRef.current = sharedSessions;
+      if (sharedInvoices || sharedSessions) {
+        setData((d) => (d ? {
+          ...d,
+          invoices: sharedInvoices || d.invoices,
+          sessions: sharedSessions || d.sessions,
+        } : d));
+      }
+    })();
+
+    const unsubInvoices = subscribeInvoices((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = d.invoices.some((i) => i.id === row.id)
+          ? d.invoices.map((i) => (i.id === row.id ? row : i))
+          : [row, ...d.invoices];
+        remoteInvoicesRef.current = next;
+        return { ...d, invoices: next };
+      });
+    });
+    const unsubSessions = subscribeSessions((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = d.sessions.some((s) => s.id === row.id)
+          ? d.sessions.map((s) => (s.id === row.id ? row : s))
+          : [...d.sessions, row];
+        remoteSessionsRef.current = next;
+        return { ...d, sessions: next };
+      });
+    });
+
+    return () => { alive = false; unsubInvoices(); unsubSessions(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const invoicesPrevRef = useRef(null);
+  const sessionsPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const nextInvoices = data.invoices;
+    const nextSessions = data.sessions;
+    const prevInvoices = invoicesPrevRef.current;
+    const prevSessions = sessionsPrevRef.current;
+    invoicesPrevRef.current = nextInvoices;
+    sessionsPrevRef.current = nextSessions;
+
+    const invoicesChanged = prevInvoices && prevInvoices !== nextInvoices && nextInvoices !== remoteInvoicesRef.current;
+    const sessionsChanged = prevSessions && prevSessions !== nextSessions && nextSessions !== remoteSessionsRef.current;
+    if (!invoicesChanged && !sessionsChanged) return;
+
+    const t = setTimeout(async () => {
+      if (invoicesChanged) {
+        const prevById = new Map(prevInvoices.map((i) => [i.id, i]));
+        await Promise.all(nextInvoices.filter((i) => prevById.get(i.id) !== i).map(upsertInvoiceRow));
+        // No delete path: an invoice is a permanent record, never removed.
+      }
+      if (sessionsChanged) {
+        const prevById = new Map(prevSessions.map((s) => [s.id, s]));
+        // No delete path here either — same reasoning.
+        for (const s of nextSessions) if (prevById.get(s.id) !== s) upsertSessionRow(s);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  /*
+   * Leaves and holidays, shared across every device. Unlike every table
+   * above, both have a genuine delete path, so this is the first of
+   * these effects that also has to push a deletion, not just upserts.
+   */
+  const remoteLeavesRef = useRef(null);
+  const remoteHolidaysRef = useRef(null);
+  const leavesHolidaysLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || leavesHolidaysLoadedRef.current) return;
+    leavesHolidaysLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let [sharedLeaves, sharedHolidays] = await Promise.all([loadLeaves(), loadHolidays()]);
+      if (sharedLeaves && sharedLeaves.length === 0) {
+        const seeded = await seedLeavesAndHolidaysIfEmpty(data.leaves, data.holidays);
+        if (seeded) [sharedLeaves, sharedHolidays] = await Promise.all([loadLeaves(), loadHolidays()]);
+      }
+      if (!alive) return;
+      if (sharedLeaves) remoteLeavesRef.current = sharedLeaves;
+      if (sharedHolidays) remoteHolidaysRef.current = sharedHolidays;
+      if (sharedLeaves || sharedHolidays) {
+        setData((d) => (d ? {
+          ...d,
+          leaves: sharedLeaves || d.leaves,
+          holidays: sharedHolidays || d.holidays,
+        } : d));
+      }
+    })();
+
+    const unsubLeaves = subscribeLeaves((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = kind === "delete"
+          ? d.leaves.filter((l) => l.id !== row.id)
+          : d.leaves.some((l) => l.id === row.id)
+            ? d.leaves.map((l) => (l.id === row.id ? row : l))
+            : [...d.leaves, row];
+        remoteLeavesRef.current = next;
+        return { ...d, leaves: next };
+      });
+    });
+    const unsubHolidays = subscribeHolidays((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = kind === "delete"
+          ? (d.holidays || []).filter((h) => h.id !== row.id)
+          : (d.holidays || []).some((h) => h.id === row.id)
+            ? d.holidays.map((h) => (h.id === row.id ? row : h))
+            : [...(d.holidays || []), row];
+        remoteHolidaysRef.current = next;
+        return { ...d, holidays: next };
+      });
+    });
+
+    return () => { alive = false; unsubLeaves(); unsubHolidays(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const leavesPrevRef = useRef(null);
+  const holidaysPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const nextLeaves = data.leaves;
+    const nextHolidays = data.holidays || [];
+    const prevLeaves = leavesPrevRef.current;
+    const prevHolidays = holidaysPrevRef.current;
+    leavesPrevRef.current = nextLeaves;
+    holidaysPrevRef.current = nextHolidays;
+
+    const leavesChanged = prevLeaves && prevLeaves !== nextLeaves && nextLeaves !== remoteLeavesRef.current;
+    const holidaysChanged = prevHolidays && prevHolidays !== nextHolidays && nextHolidays !== remoteHolidaysRef.current;
+    if (!leavesChanged && !holidaysChanged) return;
 
     const t = setTimeout(() => {
-      const prevById = new Map(prev.map((a) => [a.id, a]));
-      for (const a of next) if (prevById.get(a.id) !== a) upsertAppointmentRow(a);
-      // No delete path: cancelling sets status, it never removes the row.
+      if (leavesChanged) {
+        const prevById = new Map(prevLeaves.map((l) => [l.id, l]));
+        const nextById = new Map(nextLeaves.map((l) => [l.id, l]));
+        for (const [id, l] of nextById) if (prevById.get(id) !== l) upsertLeaveRow(l);
+        for (const id of prevById.keys()) if (!nextById.has(id)) deleteLeaveRow(id);
+      }
+      if (holidaysChanged) {
+        const prevById = new Map(prevHolidays.map((h) => [h.id, h]));
+        const nextById = new Map(nextHolidays.map((h) => [h.id, h]));
+        for (const [id, h] of nextById) if (prevById.get(id) !== h) upsertHolidayRow(h);
+        for (const id of prevById.keys()) if (!nextById.has(id)) deleteHolidayRow(id);
+      }
     }, 500);
     return () => clearTimeout(t);
   }, [ready, data]);
