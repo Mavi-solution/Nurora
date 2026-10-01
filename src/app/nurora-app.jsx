@@ -13,6 +13,14 @@ import {
   seedClientsAndAppointmentsIfEmpty, subscribeClients, subscribeAppointments,
 } from "@/lib/clients-appointments-sync";
 import { loadSettings, saveSettings, seedSettingsIfEmpty, subscribeSettings } from "@/lib/settings-sync";
+import {
+  loadInvoices, loadSessions, upsertInvoiceRow, upsertSessionRow,
+  seedSessionsAndInvoicesIfEmpty, subscribeInvoices, subscribeSessions,
+} from "@/lib/sessions-invoices-sync";
+import {
+  loadLeaves, loadHolidays, upsertLeaveRow, deleteLeaveRow, upsertHolidayRow, deleteHolidayRow,
+  seedLeavesAndHolidaysIfEmpty, subscribeLeaves, subscribeHolidays,
+} from "@/lib/leaves-holidays-sync";
 
 // Runs the instant this script loads — before React mounts or paints anything —
 // because a viewport fix applied only after first paint is often too late for
@@ -8153,6 +8161,190 @@ export default function App() {
     if (next === remoteSettingsRef.current) return;
 
     const t = setTimeout(() => saveSettings(next), 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  /*
+   * Sessions and invoices, shared across every device. `endSession`
+   * creates one invoice and stamps its id onto one session in the same
+   * local update — same load/bootstrap/subscribe shape as counsellors,
+   * and the same one-timer, dependency-ordered diff-sync as clients and
+   * appointments, for the exact reason that one needed it: invoices
+   * before sessions, because sessions.invoice_id is a foreign key to a
+   * row that, at the moment of creation, is brand new.
+   */
+  const remoteInvoicesRef = useRef(null);
+  const remoteSessionsRef = useRef(null);
+  const sessionsInvoicesLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || sessionsInvoicesLoadedRef.current) return;
+    sessionsInvoicesLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let [sharedInvoices, sharedSessions] = await Promise.all([loadInvoices(), loadSessions()]);
+      if (sharedInvoices && sharedInvoices.length === 0) {
+        const seeded = await seedSessionsAndInvoicesIfEmpty(data.invoices, data.sessions);
+        if (seeded) [sharedInvoices, sharedSessions] = await Promise.all([loadInvoices(), loadSessions()]);
+      }
+      if (!alive) return;
+      if (sharedInvoices) remoteInvoicesRef.current = sharedInvoices;
+      if (sharedSessions) remoteSessionsRef.current = sharedSessions;
+      if (sharedInvoices || sharedSessions) {
+        setData((d) => (d ? {
+          ...d,
+          invoices: sharedInvoices || d.invoices,
+          sessions: sharedSessions || d.sessions,
+        } : d));
+      }
+    })();
+
+    const unsubInvoices = subscribeInvoices((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = d.invoices.some((i) => i.id === row.id)
+          ? d.invoices.map((i) => (i.id === row.id ? row : i))
+          : [row, ...d.invoices];
+        remoteInvoicesRef.current = next;
+        return { ...d, invoices: next };
+      });
+    });
+    const unsubSessions = subscribeSessions((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = d.sessions.some((s) => s.id === row.id)
+          ? d.sessions.map((s) => (s.id === row.id ? row : s))
+          : [...d.sessions, row];
+        remoteSessionsRef.current = next;
+        return { ...d, sessions: next };
+      });
+    });
+
+    return () => { alive = false; unsubInvoices(); unsubSessions(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const invoicesPrevRef = useRef(null);
+  const sessionsPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const nextInvoices = data.invoices;
+    const nextSessions = data.sessions;
+    const prevInvoices = invoicesPrevRef.current;
+    const prevSessions = sessionsPrevRef.current;
+    invoicesPrevRef.current = nextInvoices;
+    sessionsPrevRef.current = nextSessions;
+
+    const invoicesChanged = prevInvoices && prevInvoices !== nextInvoices && nextInvoices !== remoteInvoicesRef.current;
+    const sessionsChanged = prevSessions && prevSessions !== nextSessions && nextSessions !== remoteSessionsRef.current;
+    if (!invoicesChanged && !sessionsChanged) return;
+
+    const t = setTimeout(async () => {
+      if (invoicesChanged) {
+        const prevById = new Map(prevInvoices.map((i) => [i.id, i]));
+        await Promise.all(nextInvoices.filter((i) => prevById.get(i.id) !== i).map(upsertInvoiceRow));
+        // No delete path: an invoice is a permanent record, never removed.
+      }
+      if (sessionsChanged) {
+        const prevById = new Map(prevSessions.map((s) => [s.id, s]));
+        // No delete path here either — same reasoning.
+        for (const s of nextSessions) if (prevById.get(s.id) !== s) upsertSessionRow(s);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [ready, data]);
+
+  /*
+   * Leaves and holidays, shared across every device. Unlike every table
+   * above, both have a genuine delete path, so this is the first of
+   * these effects that also has to push a deletion, not just upserts.
+   */
+  const remoteLeavesRef = useRef(null);
+  const remoteHolidaysRef = useRef(null);
+  const leavesHolidaysLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!session || !ready || !data || leavesHolidaysLoadedRef.current) return;
+    leavesHolidaysLoadedRef.current = true;
+
+    let alive = true;
+    (async () => {
+      let [sharedLeaves, sharedHolidays] = await Promise.all([loadLeaves(), loadHolidays()]);
+      if (sharedLeaves && sharedLeaves.length === 0) {
+        const seeded = await seedLeavesAndHolidaysIfEmpty(data.leaves, data.holidays);
+        if (seeded) [sharedLeaves, sharedHolidays] = await Promise.all([loadLeaves(), loadHolidays()]);
+      }
+      if (!alive) return;
+      if (sharedLeaves) remoteLeavesRef.current = sharedLeaves;
+      if (sharedHolidays) remoteHolidaysRef.current = sharedHolidays;
+      if (sharedLeaves || sharedHolidays) {
+        setData((d) => (d ? {
+          ...d,
+          leaves: sharedLeaves || d.leaves,
+          holidays: sharedHolidays || d.holidays,
+        } : d));
+      }
+    })();
+
+    const unsubLeaves = subscribeLeaves((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = kind === "delete"
+          ? d.leaves.filter((l) => l.id !== row.id)
+          : d.leaves.some((l) => l.id === row.id)
+            ? d.leaves.map((l) => (l.id === row.id ? row : l))
+            : [...d.leaves, row];
+        remoteLeavesRef.current = next;
+        return { ...d, leaves: next };
+      });
+    });
+    const unsubHolidays = subscribeHolidays((kind, row) => {
+      setData((d) => {
+        if (!d) return d;
+        const next = kind === "delete"
+          ? (d.holidays || []).filter((h) => h.id !== row.id)
+          : (d.holidays || []).some((h) => h.id === row.id)
+            ? d.holidays.map((h) => (h.id === row.id ? row : h))
+            : [...(d.holidays || []), row];
+        remoteHolidaysRef.current = next;
+        return { ...d, holidays: next };
+      });
+    });
+
+    return () => { alive = false; unsubLeaves(); unsubHolidays(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, ready]);
+
+  const leavesPrevRef = useRef(null);
+  const holidaysPrevRef = useRef(null);
+  useEffect(() => {
+    if (!ready || !data) return;
+    const nextLeaves = data.leaves;
+    const nextHolidays = data.holidays || [];
+    const prevLeaves = leavesPrevRef.current;
+    const prevHolidays = holidaysPrevRef.current;
+    leavesPrevRef.current = nextLeaves;
+    holidaysPrevRef.current = nextHolidays;
+
+    const leavesChanged = prevLeaves && prevLeaves !== nextLeaves && nextLeaves !== remoteLeavesRef.current;
+    const holidaysChanged = prevHolidays && prevHolidays !== nextHolidays && nextHolidays !== remoteHolidaysRef.current;
+    if (!leavesChanged && !holidaysChanged) return;
+
+    const t = setTimeout(() => {
+      if (leavesChanged) {
+        const prevById = new Map(prevLeaves.map((l) => [l.id, l]));
+        const nextById = new Map(nextLeaves.map((l) => [l.id, l]));
+        for (const [id, l] of nextById) if (prevById.get(id) !== l) upsertLeaveRow(l);
+        for (const id of prevById.keys()) if (!nextById.has(id)) deleteLeaveRow(id);
+      }
+      if (holidaysChanged) {
+        const prevById = new Map(prevHolidays.map((h) => [h.id, h]));
+        const nextById = new Map(nextHolidays.map((h) => [h.id, h]));
+        for (const [id, h] of nextById) if (prevById.get(id) !== h) upsertHolidayRow(h);
+        for (const id of prevById.keys()) if (!nextById.has(id)) deleteHolidayRow(id);
+      }
+    }, 500);
     return () => clearTimeout(t);
   }, [ready, data]);
 
