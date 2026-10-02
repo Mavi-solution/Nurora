@@ -7847,6 +7847,12 @@ const TABS = [
 export default function App() {
   const [data, setData] = useState(null);
   const [user, setUser] = useState(null);
+  // Read by the counsellors-bootstrap effect below, which only ever runs
+  // once and can't take `user` as a dependency without re-running on
+  // every sign-in state change — a ref gives it the current value
+  // without that.
+  const userRef = useRef(null);
+  useEffect(() => { userRef.current = user; }, [user]);
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("schedule");
@@ -7968,24 +7974,26 @@ export default function App() {
       // Merged, not replaced outright: resolveIdentity writes a brand new
       // counsellor to Supabase before it ever hands back `user`, but this
       // read runs on its own schedule and can still win a race against
-      // that write's own local state update landing first. Keeping any
-      // local-only id this particular read doesn't know about yet means
-      // a stale read can never make someone's own just-created record
-      // vanish out from under them.
+      // that write's own local state update landing first. Keeping the
+      // signed-in user's own id, specifically, when this particular read
+      // doesn't know about it yet means a stale read can never make
+      // someone's own just-created record vanish out from under them.
       //
-      // `remoteCounsellorsRef` is deliberately set to `shared` itself,
-      // not to the merged result: in the ordinary case there's nothing
-      // to merge and the two are the same array, so the diff-sync effect
-      // below still recognises this as a remote echo and skips it, same
-      // as before. On the rare occasion there IS a survivor to merge,
-      // the two are no longer the same array on purpose — that survivor
-      // still needs pushing up, and this is what lets the diff-sync
-      // effect notice it rather than mistake this for an echo of
-      // something that was never actually written yet.
+      // Deliberately narrower than "keep anything local-only": every
+      // fresh browser's local state also still has `seed()`'s demo
+      // roster (Anisha, Shefrin, Ramya, ...) sitting in it with ids this
+      // browser made up on its own, forever, whether or not that demo
+      // data was ever written to Supabase. Treating every local-only id
+      // as a survivor worth re-adding merged that stale demo roster back
+      // into the shared one on every single sign-in, on every device —
+      // which is how counsellors ended up duplicated under different
+      // ids in the first place. The only local-only record that can
+      // legitimately exist here mid-race is the current user's own.
+      const myId = userRef.current?.counsellorId;
       setData((d) => {
         if (!d) return d;
         const sharedIds = new Set(shared.map((c) => c.id));
-        const localOnly = d.counsellors.filter((c) => !sharedIds.has(c.id));
+        const localOnly = myId ? d.counsellors.filter((c) => c.id === myId && !sharedIds.has(c.id)) : [];
         const merged = localOnly.length ? [...shared, ...localOnly] : shared;
         remoteCounsellorsRef.current = shared;
         return { ...d, counsellors: merged };

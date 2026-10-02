@@ -104,11 +104,20 @@ export async function upsertSessionRow(s) {
 /* Neither is ever hard-deleted by the app — a session and its invoice
  * are permanent record of what happened, never removed. */
 
+/** See counsellors-sync.js's claimSeedLock for why this exists: an
+ * "is the table empty" check isn't atomic, and two devices racing it
+ * both seed their own, differently-id'd copy of the same local data. */
+async function claimSeedLock(key) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase.from("seed_locks").insert({ key });
+  return !error;
+}
+
 export async function seedSessionsAndInvoicesIfEmpty(localInvoices, localSessions) {
   const supabase = getSupabase();
   if (!supabase) return false;
-  const { count } = await supabase.from("invoices").select("id", { count: "exact", head: true });
-  if (count && count > 0) return false;
+  if (!(await claimSeedLock("sessions_invoices"))) return false;
   let ok = true;
   // Invoices first: sessions.invoice_id references them.
   if (localInvoices && localInvoices.length) {
