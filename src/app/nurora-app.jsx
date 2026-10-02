@@ -4551,62 +4551,86 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       <div key={isFollowup ? "followup" : "new"} style={{ animation: "nurora-fade-in .28s ease" }}>
       {isFollowup ? (
         <>
-          <Field label="Client name" required htmlFor="na-followupName" error={fieldErr("na-followupName")}>
-            <Input id="na-followupName" invalid={!!fieldErr("na-followupName")}
-              placeholder="Search by name" value={form.followupName || ""}
-              onBlur={() => v.touch("na-followupName")}
-              onChange={(e) => setForm({ ...form, followupName: e.target.value, clientId: "" })} />
-          </Field>
+          {/* `display: flow-root` so the Field's own margin stays inside
+              this box — otherwise it collapses through and the dropdown's
+              `top: 100%` lands in the wrong place. */}
+          <div style={{ position: "relative", display: "flow-root" }}>
+            <Field label="Client name" required htmlFor="na-followupName" error={fieldErr("na-followupName")}>
+              <Input id="na-followupName" invalid={!!fieldErr("na-followupName")}
+                placeholder="Search by name" value={form.followupName || ""}
+                onBlur={() => v.touch("na-followupName")}
+                onChange={(e) => setForm({ ...form, followupName: e.target.value, clientId: "" })} />
+            </Field>
+
+            {(() => {
+              const nameQuery = (form.followupName || "").trim().toLowerCase();
+              const digits = (form.followupPhone || "").replace(/\D/g, "");
+              if (nameQuery.length < 2 && digits.length < 4) return null;
+              const matches = data.clients.filter((c) =>
+                (nameQuery.length >= 2 && c.name.toLowerCase().includes(nameQuery)) ||
+                (digits.length >= 4 && (c.phone || c.whatsapp || "").replace(/\D/g, "").includes(digits))
+              );
+              // A dropdown anchored to the name field it's searching from,
+              // not a block shoved below both fields — it used to land
+              // after the WhatsApp field even when you were searching by
+              // name, nowhere near what you were typing into.
+              const panelStyle = {
+                position: "absolute", top: "100%", left: 0, right: 0, marginTop: -8, zIndex: 20,
+                borderRadius: 16, padding: 10,
+                background: "rgba(255,255,255,0.92)", backdropFilter: "blur(22px) saturate(180%)", WebkitBackdropFilter: "blur(22px) saturate(180%)",
+                border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 16px 32px rgba(20,20,20,0.14), 0 4px 10px rgba(20,20,20,0.06)",
+              };
+              if (matches.length === 1) {
+                const m = matches[0];
+                return (
+                  <div style={panelStyle}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 2px" }}>
+                      <Check size={16} strokeWidth={2} color={C.ink} />
+                      <div>
+                        <div style={{ fontSize: 14, color: C.ink }}>{m.name} <span style={{ color: C.soft, fontWeight: 400 }}>· {m.age}</span></div>
+                        <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
+                          {[m.phone || m.whatsapp, m.category, m.mode].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              if (matches.length > 1) {
+                return (
+                  <div style={panelStyle}>
+                    <div style={{ fontSize: 10, color: C.soft, textTransform: "uppercase", letterSpacing: "0.06em", padding: "2px 4px 8px" }}>
+                      Multiple matches — pick one
+                    </div>
+                    <div style={{ display: "grid", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+                      {matches.map((m) => (
+                        <button key={m.id} onClick={() => setForm({ ...form, clientId: m.id })}
+                          style={{
+                            display: "flex", justifyContent: "space-between", alignItems: "center",
+                            padding: "10px 13px", borderRadius: 12, cursor: "pointer",
+                            border: `1px solid ${form.clientId === m.id ? "#111" : C.line}`,
+                            background: form.clientId === m.id ? "#111" : "#fff",
+                          }}>
+                          <span style={{ fontSize: 13.5, color: form.clientId === m.id ? "#fff" : C.ink }}>{m.name} · {m.age}</span>
+                          <span style={{ fontSize: 12, color: form.clientId === m.id ? "rgba(255,255,255,0.7)" : C.soft }}>{m.phone || m.whatsapp}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div style={panelStyle}>
+                  <div style={{ fontSize: 12.5, color: C.faint, padding: "4px 2px" }}>No client found with this number. Check it, or switch to New client.</div>
+                </div>
+              );
+            })()}
+          </div>
 
           <Field label="WhatsApp / Phone number" hint="Unique to each client — either field will find them.">
             <Input inputMode="tel" placeholder="e.g. 98400 11223" value={form.followupPhone || ""}
               onChange={(e) => setForm({ ...form, followupPhone: e.target.value, clientId: "" })} />
           </Field>
-
-          {(() => {
-            const nameQuery = (form.followupName || "").trim().toLowerCase();
-            const digits = (form.followupPhone || "").replace(/\D/g, "");
-            if (nameQuery.length < 2 && digits.length < 4) return null;
-            const matches = data.clients.filter((c) =>
-              (nameQuery.length >= 2 && c.name.toLowerCase().includes(nameQuery)) ||
-              (digits.length >= 4 && (c.phone || c.whatsapp || "").replace(/\D/g, "").includes(digits))
-            );
-            if (matches.length === 1) {
-              const m = matches[0];
-              return (
-                <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, padding: "12px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-                  <Check size={16} strokeWidth={2} color={C.ink} />
-                  <div>
-                    <div style={{ fontSize: 14, color: C.ink }}>{m.name} <span style={{ color: C.soft, fontWeight: 400 }}>· {m.age}</span></div>
-                    <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
-                      {[m.phone || m.whatsapp, m.category, m.mode].filter(Boolean).join(" · ")}
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-            if (matches.length > 1) {
-              return (
-                <Field label="Multiple matches — pick one">
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {matches.map((m) => (
-                      <button key={m.id} onClick={() => setForm({ ...form, clientId: m.id })}
-                        style={{
-                          display: "flex", justifyContent: "space-between", alignItems: "center",
-                          padding: "10px 13px", borderRadius: 12, cursor: "pointer",
-                          border: `1px solid ${form.clientId === m.id ? "#111" : C.line}`,
-                          background: form.clientId === m.id ? "#111" : "#fff",
-                        }}>
-                        <span style={{ fontSize: 13.5, color: form.clientId === m.id ? "#fff" : C.ink }}>{m.name} · {m.age}</span>
-                        <span style={{ fontSize: 12, color: form.clientId === m.id ? "rgba(255,255,255,0.7)" : C.soft }}>{m.phone || m.whatsapp}</span>
-                      </button>
-                    ))}
-                  </div>
-                </Field>
-              );
-            }
-            return <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 16 }}>No client found with this number. Check it, or switch to New client.</div>;
-          })()}
         </>
       ) : (
         <>
