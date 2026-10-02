@@ -1130,7 +1130,12 @@ function ErrorSummary({ errors }) {
       padding: "10px 12px", fontSize: 12.5, color: "#b42318", lineHeight: 1.5,
     }}>
       <div style={{ fontWeight: 500, marginBottom: errors.length > 1 ? 5 : 0 }}>
-        {errors.length === 1 ? "1 field needs attention" : `${errors.length} fields need attention`}
+        {/* A single error names itself outright — "1 field needs
+            attention" with nothing further told someone exactly which
+            field only by way of the page quietly scrolling to it a
+            moment later, easy to miss and easy to read as nothing
+            having happened at all. */}
+        {errors.length === 1 ? errors[0].message : `${errors.length} fields need attention`}
       </div>
       {errors.length > 1 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px" }}>
