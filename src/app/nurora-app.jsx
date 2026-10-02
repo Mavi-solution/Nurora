@@ -4604,7 +4604,7 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
                     </div>
                     <div style={{ display: "grid", gap: 6, maxHeight: 220, overflowY: "auto" }}>
                       {matches.map((m) => (
-                        <button key={m.id} onClick={() => setForm({ ...form, clientId: m.id })}
+                        <button key={m.id} onClick={() => setForm({ ...form, clientId: m.id, followupName: m.name })}
                           style={{
                             display: "flex", justifyContent: "space-between", alignItems: "center",
                             padding: "10px 13px", borderRadius: 12, cursor: "pointer",
