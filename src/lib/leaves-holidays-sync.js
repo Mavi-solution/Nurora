@@ -83,11 +83,20 @@ export async function deleteHolidayRow(id) {
   await supabase.from("holidays").delete().eq("id", id);
 }
 
+/** See counsellors-sync.js's claimSeedLock for why this exists: an
+ * "is the table empty" check isn't atomic, and two devices racing it
+ * both seed their own, differently-id'd copy of the same local data. */
+async function claimSeedLock(key) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase.from("seed_locks").insert({ key });
+  return !error;
+}
+
 export async function seedLeavesAndHolidaysIfEmpty(localLeaves, localHolidays) {
   const supabase = getSupabase();
   if (!supabase) return false;
-  const { count } = await supabase.from("leaves").select("id", { count: "exact", head: true });
-  if (count && count > 0) return false;
+  if (!(await claimSeedLock("leaves_holidays"))) return false;
   let ok = true;
   if (localLeaves && localLeaves.length) {
     const { error } = await supabase.from("leaves").insert(localLeaves.map(leaveAppToRow));

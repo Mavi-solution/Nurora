@@ -146,16 +146,29 @@ export async function deleteCounsellorRow(id) {
   await supabase.from("counsellors").delete().eq("id", id);
 }
 
-/** First run only: this browser's local roster becomes the shared one.
- * Guarded by the caller checking the table is empty, and further
- * guarded here by inserting rather than upserting — a second caller
- * racing the same moment gets a harmless duplicate-key rejection on
- * every row instead of two admins each overwriting the other's copy. */
-export async function seedCounsellorsIfEmpty(localCounsellors) {
+/** Claims this project's one-ever shot at seeding a given table from
+ * `seed_locks` (see the 0007 migration). The insert's primary key is
+ * the whole mechanism: however many devices call this at once,
+ * Postgres lets exactly one of them succeed, so only one ever goes on
+ * to actually seed — everyone else sees their own insert rejected and
+ * returns false. A plain "is the table empty" check used to guard this
+ * instead, which isn't atomic: two devices could both see "empty"
+ * before either had inserted anything, and both would seed, each with
+ * its own randomly-generated local ids that don't collide with each
+ * other — exactly how this project ended up with two of several
+ * counsellors under different ids. */
+async function claimSeedLock(key) {
   const supabase = getSupabase();
-  if (!supabase || !localCounsellors || !localCounsellors.length) return false;
-  const { count } = await supabase.from("counsellors").select("id", { count: "exact", head: true });
-  if (count && count > 0) return false;
+  if (!supabase) return false;
+  const { error } = await supabase.from("seed_locks").insert({ key });
+  return !error;
+}
+
+/** First run only: this browser's local roster becomes the shared one. */
+export async function seedCounsellorsIfEmpty(localCounsellors) {
+  if (!localCounsellors || !localCounsellors.length) return false;
+  if (!(await claimSeedLock("counsellors"))) return false;
+  const supabase = getSupabase();
   const { error } = await supabase.from("counsellors").insert(localCounsellors.map(appToRow));
   return !error;
 }

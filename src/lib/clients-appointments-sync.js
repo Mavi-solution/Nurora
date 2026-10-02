@@ -157,11 +157,20 @@ export async function upsertAppointmentRow(a) {
  * now for a path nothing calls is just a way to introduce an untested
  * one. */
 
+/** See counsellors-sync.js's claimSeedLock for why this exists: an
+ * "is the table empty" check isn't atomic, and two devices racing it
+ * both seed their own, differently-id'd copy of the same local data. */
+async function claimSeedLock(key) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase.from("seed_locks").insert({ key });
+  return !error;
+}
+
 export async function seedClientsAndAppointmentsIfEmpty(localClients, localAppointments) {
   const supabase = getSupabase();
   if (!supabase) return false;
-  const { count } = await supabase.from("clients").select("id", { count: "exact", head: true });
-  if (count && count > 0) return false;
+  if (!(await claimSeedLock("clients_appointments"))) return false;
   let ok = true;
   if (localClients && localClients.length) {
     const { error } = await supabase.from("clients").insert(localClients.map(clientAppToRow));

@@ -25,13 +25,25 @@ export async function saveSettings(settings) {
   await supabase.from("settings").upsert({ id: ROW_ID, value: settings, updated_at: new Date().toISOString() });
 }
 
-/** First run only: this browser's local settings become the shared
- * ones. Guarded by the caller checking the row doesn't exist yet. */
-export async function seedSettingsIfEmpty(localSettings) {
+/** See counsellors-sync.js's claimSeedLock for why this exists: an
+ * "is the row there yet" check isn't atomic, and two devices racing it
+ * can both decide they're first. Settings happens to be safe from
+ * actual duplication either way — `id` is the fixed constant ROW_ID,
+ * so a losing insert collides on that primary key and fails cleanly —
+ * but it shares the same lock as every other table for consistency. */
+async function claimSeedLock(key) {
   const supabase = getSupabase();
-  if (!supabase || !localSettings) return false;
-  const { data } = await supabase.from("settings").select("id").eq("id", ROW_ID).limit(1);
-  if (data && data.length) return false;
+  if (!supabase) return false;
+  const { error } = await supabase.from("seed_locks").insert({ key });
+  return !error;
+}
+
+/** First run only: this browser's local settings become the shared
+ * ones. */
+export async function seedSettingsIfEmpty(localSettings) {
+  if (!localSettings) return false;
+  if (!(await claimSeedLock("settings"))) return false;
+  const supabase = getSupabase();
   const { error } = await supabase.from("settings").insert({ id: ROW_ID, value: localSettings });
   return !error;
 }
