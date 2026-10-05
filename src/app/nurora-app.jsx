@@ -4632,8 +4632,8 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
             })()}
           </div>
 
-          <Field label="WhatsApp / Phone number" hint="Unique to each client — either field will find them.">
-            <Input inputMode="tel" placeholder="e.g. 98400 11223" value={form.followupPhone || ""}
+          <Field label="WhatsApp / Phone number" htmlFor="na-followupPhone" hint="Unique to each client — either field will find them.">
+            <Input id="na-followupPhone" inputMode="tel" placeholder="e.g. 98400 11223" value={form.followupPhone || ""}
               onChange={(e) => setForm({ ...form, followupPhone: e.target.value, clientId: "" })} />
           </Field>
         </>
@@ -4709,8 +4709,13 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
         )}
       </Field>
 
+      {/* No htmlFor on the Field below: the group it wraps is a
+          `role="group"` of buttons, not a single form control, and
+          already names itself via its own aria-label — a <label for>
+          pointing at a <div> isn't a valid target and was flagged as
+          such. */}
       {counsellor && (
-        <Field label="Time slot" required htmlFor="na-time" error={fieldErr("na-time")}>
+        <Field label="Time slot" required error={fieldErr("na-time")}>
           <div id="na-time" tabIndex={-1} role="group" aria-label="Time slot"
             style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
             {slotOptions.map((t) => {
@@ -4744,7 +4749,9 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       <TimelineStep icon={Tag} done={donePayment} active={doneSchedule && !donePayment}>
       {!isFollowup && (
         <>
-          <Field label="Mode" required htmlFor="na-mode" error={fieldErr("na-mode")}>
+          {/* No htmlFor: same reasoning as Time slot/Tags above — a
+              group of buttons, already self-labelled via aria-label. */}
+          <Field label="Mode" required error={fieldErr("na-mode")}>
             <div id="na-mode" tabIndex={-1} role="group" aria-label="Mode"
               style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
               {modes.map((m) => (
@@ -4788,7 +4795,9 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
         </Field>
       )}
 
-      <Field label="Tags" required htmlFor="na-tags" error={fieldErr("na-tags")}
+      {/* No htmlFor: same reasoning as Time slot above — a group of
+          buttons, already self-labelled via aria-label. */}
+      <Field label="Tags" required error={fieldErr("na-tags")}
         hint="Select any that apply — shown to the counsellor under the client's name.">
         <div id="na-tags" tabIndex={-1} role="group" aria-label="Tags"
           style={{ display: "flex", flexWrap: "wrap", gap: 7, outline: "none" }}>
@@ -5420,7 +5429,9 @@ function CancelRescheduleSheet({ appt, data, act, onClose, initialMode }) {
           onBlur={() => crv.touch("cr-date")}
           onChange={(e) => { setNewDate(e.target.value); setNewTime(""); }} />
       </Field>
-      <Field label="Time slot" required htmlFor="cr-time" error={crv.showFor("cr-time")}>
+      {/* No htmlFor: same reasoning as the Quick Book time slot field —
+          a group of buttons, already self-labelled via aria-label. */}
+      <Field label="Time slot" required error={crv.showFor("cr-time")}>
         <div id="cr-time" tabIndex={-1} role="group" aria-label="Time slot"
           style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
           {slotOptions.map((t) => {
@@ -9493,6 +9504,7 @@ export default function App() {
         }}>
           {!user.isNuLancer && (
             <input
+              id="team-chat-composer" name="team-chat-composer" aria-label="Message the team"
               value={quickText}
               onChange={(e) => setQuickText(e.target.value)}
               onFocus={() => setChatOpen(true)}
