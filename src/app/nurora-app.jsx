@@ -4372,7 +4372,7 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       window.open(waLink(), "_blank");
     };
     return (
-      <Sheet open onClose={onClose} title="Booking confirmed" footer={<Btn full kind="solid" onClick={onClose}>Done</Btn>}>
+      <Sheet open={open} onClose={onClose} title="Booking confirmed" footer={<Btn full kind="solid" onClick={onClose}>Done</Btn>}>
         <div style={{ textAlign: "center", padding: "6px 0 18px" }}>
           <Check size={26} strokeWidth={1.3} color={C.ink} />
         </div>
