@@ -89,6 +89,16 @@ export async function deleteHolidayRow(id) {
 async function claimSeedLock(key) {
   const supabase = getSupabase();
   if (!supabase) return false;
+  // A cheap read first: once a key is claimed it stays claimed forever,
+  // so without this every sign-in after the first would keep attempting
+  // the insert below and getting it rejected by the same key every
+  // time — harmless, but a pointless failed request showing up red in
+  // the console on every single login from then on. The insert itself
+  // is still what actually decides a genuine race between two devices
+  // claiming at once; this only avoids re-asking once the answer is
+  // already known.
+  const { data: existing } = await supabase.from("seed_locks").select("key").eq("key", key).limit(1);
+  if (existing && existing.length) return false;
   const { error } = await supabase.from("seed_locks").insert({ key });
   return !error;
 }
