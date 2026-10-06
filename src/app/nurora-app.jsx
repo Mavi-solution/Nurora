@@ -9142,9 +9142,18 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", background: "#fff", color: C.ink, fontFamily: FONT, display: "flex" }}>
-      {/* desktop sidebar */}
+      {/* desktop sidebar
+          `position: fixed`, not `sticky` — the reset stylesheet in
+          fitViewport() sets `overflow-x: hidden` on html/body to stop
+          horizontal scroll/bounce, and that alone is enough to break
+          `position: sticky` in every mainstream browser, even though
+          only the x-axis is ever set: a well-documented interaction
+          between the two, not specific to this element. Fixed
+          positioning is anchored to the viewport directly and isn't
+          affected by a scrolling ancestor at all, which is also a more
+          literal match for "stays in place while the content scrolls." */}
       {isDesktop && (
-      <aside style={{ width: 232, display: "flex", flexDirection: "column", borderRight: `1px solid ${C.line}`, padding: "26px 18px", position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
+      <aside style={{ width: 232, display: "flex", flexDirection: "column", borderRight: `1px solid ${C.line}`, padding: "26px 18px", position: "fixed", top: 0, left: 0, height: "100vh", overflowY: "auto", background: "#fff", zIndex: 10 }}>
         <div style={{ fontSize: 19, letterSpacing: "-0.3px", padding: "0 8px 4px" }}>Nurora</div>
         <div style={{ fontSize: 12, color: C.soft, padding: "0 8px 26px" }}>{user.name} · {user.role === "admin" ? "Admin" : user.isNuLancer ? "NuLancer" : "Counsellor"}</div>
         {TABS.filter((t) => t[0] !== "more").map(([k, label, Icon]) => (
@@ -9168,7 +9177,11 @@ export default function App() {
       </aside>
       )}
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      {/* `marginLeft` replaces the space the sidebar used to reserve by
+          sitting in normal flow — `position: fixed` takes it out of
+          flow entirely, so without this the content would slide
+          underneath it. */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isDesktop ? 232 : 0 }}>
         {/* header */}
         <header style={{ background: "#fff" }}>
           <div style={{ padding: "0 16px 8px", maxWidth: 980, margin: "0 auto" }}>
