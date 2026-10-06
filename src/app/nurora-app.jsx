@@ -675,11 +675,18 @@ function MilestoneBar({ value, onChange, messageSent, onOpenMessage, callMade, o
                 opacity: !canManage ? 0.55 : !unlocked && i !== 2 ? 0.45 : 1,
                 transition: "background .3s ease, border-color .3s ease, opacity .2s ease",
               }}>
-                {i === 0 && <Send size={9} strokeWidth={2} color={done ? "#fff" : C.faint} style={{ display: "block" }} />}
-                {i === 1 && <Phone size={9} strokeWidth={2} color={done ? "#fff" : C.faint} style={{ display: "block" }} />}
-                {i === 2 && <Square size={8} strokeWidth={0} fill={done ? "#fff" : C.faint} style={{ display: "block" }} />}
-                {i === 3 && <FileCheck size={9} strokeWidth={2} color={done ? "#fff" : C.soft} style={{ display: "block" }} />}
-                {i === 4 && <UserCheck size={9} strokeWidth={2} color={done ? "#fff" : C.soft} style={{ display: "block" }} />}
+                {/* The step that's unlocked-but-not-done is the one
+                    someone is actually meant to tap next — at 9px, its
+                    icon was the same pale, barely-there color as a
+                    still-locked future step, easy to read as blank
+                    rather than tappable (reported as the persona icon
+                    "not displaying"). Darker once it's actually the
+                    live, actionable step. */}
+                {i === 0 && <Send size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.faint} style={{ display: "block" }} />}
+                {i === 1 && <Phone size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.faint} style={{ display: "block" }} />}
+                {i === 2 && <Square size={8} strokeWidth={0} fill={done ? "#fff" : unlocked ? C.mid : C.faint} style={{ display: "block" }} />}
+                {i === 3 && <FileCheck size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.soft} style={{ display: "block" }} />}
+                {i === 4 && <UserCheck size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.soft} style={{ display: "block" }} />}
               </button>
               {i < MILESTONES.length - 1 && (
                 <div style={{ flex: 1, height: 1.5, background: i < realIdx ? "#111" : C.ghost, minWidth: 8 }} />
@@ -4632,8 +4639,8 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
             })()}
           </div>
 
-          <Field label="WhatsApp / Phone number" hint="Unique to each client — either field will find them.">
-            <Input inputMode="tel" placeholder="e.g. 98400 11223" value={form.followupPhone || ""}
+          <Field label="WhatsApp / Phone number" htmlFor="na-followupPhone" hint="Unique to each client — either field will find them.">
+            <Input id="na-followupPhone" inputMode="tel" placeholder="e.g. 98400 11223" value={form.followupPhone || ""}
               onChange={(e) => setForm({ ...form, followupPhone: e.target.value, clientId: "" })} />
           </Field>
         </>
@@ -4709,8 +4716,13 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
         )}
       </Field>
 
+      {/* No htmlFor on the Field below: the group it wraps is a
+          `role="group"` of buttons, not a single form control, and
+          already names itself via its own aria-label — a <label for>
+          pointing at a <div> isn't a valid target and was flagged as
+          such. */}
       {counsellor && (
-        <Field label="Time slot" required htmlFor="na-time" error={fieldErr("na-time")}>
+        <Field label="Time slot" required error={fieldErr("na-time")}>
           <div id="na-time" tabIndex={-1} role="group" aria-label="Time slot"
             style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
             {slotOptions.map((t) => {
@@ -4744,7 +4756,9 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
       <TimelineStep icon={Tag} done={donePayment} active={doneSchedule && !donePayment}>
       {!isFollowup && (
         <>
-          <Field label="Mode" required htmlFor="na-mode" error={fieldErr("na-mode")}>
+          {/* No htmlFor: same reasoning as Time slot/Tags above — a
+              group of buttons, already self-labelled via aria-label. */}
+          <Field label="Mode" required error={fieldErr("na-mode")}>
             <div id="na-mode" tabIndex={-1} role="group" aria-label="Mode"
               style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
               {modes.map((m) => (
@@ -4788,7 +4802,9 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
         </Field>
       )}
 
-      <Field label="Tags" required htmlFor="na-tags" error={fieldErr("na-tags")}
+      {/* No htmlFor: same reasoning as Time slot above — a group of
+          buttons, already self-labelled via aria-label. */}
+      <Field label="Tags" required error={fieldErr("na-tags")}
         hint="Select any that apply — shown to the counsellor under the client's name.">
         <div id="na-tags" tabIndex={-1} role="group" aria-label="Tags"
           style={{ display: "flex", flexWrap: "wrap", gap: 7, outline: "none" }}>
@@ -5420,7 +5436,9 @@ function CancelRescheduleSheet({ appt, data, act, onClose, initialMode }) {
           onBlur={() => crv.touch("cr-date")}
           onChange={(e) => { setNewDate(e.target.value); setNewTime(""); }} />
       </Field>
-      <Field label="Time slot" required htmlFor="cr-time" error={crv.showFor("cr-time")}>
+      {/* No htmlFor: same reasoning as the Quick Book time slot field —
+          a group of buttons, already self-labelled via aria-label. */}
+      <Field label="Time slot" required error={crv.showFor("cr-time")}>
         <div id="cr-time" tabIndex={-1} role="group" aria-label="Time slot"
           style={{ display: "flex", flexWrap: "wrap", gap: 8, outline: "none" }}>
           {slotOptions.map((t) => {
@@ -9131,9 +9149,18 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", background: "#fff", color: C.ink, fontFamily: FONT, display: "flex" }}>
-      {/* desktop sidebar */}
+      {/* desktop sidebar
+          `position: fixed`, not `sticky` — the reset stylesheet in
+          fitViewport() sets `overflow-x: hidden` on html/body to stop
+          horizontal scroll/bounce, and that alone is enough to break
+          `position: sticky` in every mainstream browser, even though
+          only the x-axis is ever set: a well-documented interaction
+          between the two, not specific to this element. Fixed
+          positioning is anchored to the viewport directly and isn't
+          affected by a scrolling ancestor at all, which is also a more
+          literal match for "stays in place while the content scrolls." */}
       {isDesktop && (
-      <aside style={{ width: 232, display: "flex", flexDirection: "column", borderRight: `1px solid ${C.line}`, padding: "26px 18px", position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
+      <aside style={{ width: 232, display: "flex", flexDirection: "column", borderRight: `1px solid ${C.line}`, padding: "26px 18px", position: "fixed", top: 0, left: 0, height: "100vh", overflowY: "auto", background: "#fff", zIndex: 10 }}>
         <div style={{ fontSize: 19, letterSpacing: "-0.3px", padding: "0 8px 4px" }}>Nurora</div>
         <div style={{ fontSize: 12, color: C.soft, padding: "0 8px 26px" }}>{user.name} · {user.role === "admin" ? "Admin" : user.isNuLancer ? "NuLancer" : "Counsellor"}</div>
         {TABS.filter((t) => t[0] !== "more").map(([k, label, Icon]) => (
@@ -9157,7 +9184,11 @@ export default function App() {
       </aside>
       )}
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      {/* `marginLeft` replaces the space the sidebar used to reserve by
+          sitting in normal flow — `position: fixed` takes it out of
+          flow entirely, so without this the content would slide
+          underneath it. */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isDesktop ? 232 : 0 }}>
         {/* header */}
         <header style={{ background: "#fff" }}>
           <div style={{ padding: "0 16px 8px", maxWidth: 980, margin: "0 auto" }}>
@@ -9493,6 +9524,7 @@ export default function App() {
         }}>
           {!user.isNuLancer && (
             <input
+              id="team-chat-composer" name="team-chat-composer" aria-label="Message the team"
               value={quickText}
               onChange={(e) => setQuickText(e.target.value)}
               onFocus={() => setChatOpen(true)}
