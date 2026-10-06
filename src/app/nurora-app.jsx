@@ -675,11 +675,18 @@ function MilestoneBar({ value, onChange, messageSent, onOpenMessage, callMade, o
                 opacity: !canManage ? 0.55 : !unlocked && i !== 2 ? 0.45 : 1,
                 transition: "background .3s ease, border-color .3s ease, opacity .2s ease",
               }}>
-                {i === 0 && <Send size={9} strokeWidth={2} color={done ? "#fff" : C.faint} style={{ display: "block" }} />}
-                {i === 1 && <Phone size={9} strokeWidth={2} color={done ? "#fff" : C.faint} style={{ display: "block" }} />}
-                {i === 2 && <Square size={8} strokeWidth={0} fill={done ? "#fff" : C.faint} style={{ display: "block" }} />}
-                {i === 3 && <FileCheck size={9} strokeWidth={2} color={done ? "#fff" : C.soft} style={{ display: "block" }} />}
-                {i === 4 && <UserCheck size={9} strokeWidth={2} color={done ? "#fff" : C.soft} style={{ display: "block" }} />}
+                {/* The step that's unlocked-but-not-done is the one
+                    someone is actually meant to tap next — at 9px, its
+                    icon was the same pale, barely-there color as a
+                    still-locked future step, easy to read as blank
+                    rather than tappable (reported as the persona icon
+                    "not displaying"). Darker once it's actually the
+                    live, actionable step. */}
+                {i === 0 && <Send size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.faint} style={{ display: "block" }} />}
+                {i === 1 && <Phone size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.faint} style={{ display: "block" }} />}
+                {i === 2 && <Square size={8} strokeWidth={0} fill={done ? "#fff" : unlocked ? C.mid : C.faint} style={{ display: "block" }} />}
+                {i === 3 && <FileCheck size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.soft} style={{ display: "block" }} />}
+                {i === 4 && <UserCheck size={9} strokeWidth={2} color={done ? "#fff" : unlocked ? C.mid : C.soft} style={{ display: "block" }} />}
               </button>
               {i < MILESTONES.length - 1 && (
                 <div style={{ flex: 1, height: 1.5, background: i < realIdx ? "#111" : C.ghost, minWidth: 8 }} />
