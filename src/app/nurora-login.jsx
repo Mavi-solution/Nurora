@@ -4,28 +4,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabase, supabaseProblem } from "@/lib/supabase";
 
 /*
- * The sign-in screen, rebuilt from the one this app used before the
- * rewrite: brand panel on the left, form on the right, collapsing to the
- * form alone below 1024px.
+ * The sign-in screen: a single centered column on a plain white page,
+ * led by a large two-tone quote rather than the old sage-and-serif
+ * brand panel.
  *
- * The palette and type are the original design tokens, written here as
- * literals. The rest of the app ships its own reset and no stylesheet, so
- * pulling Tailwind back in for one screen would put its preflight on top
- * of that reset and change how every other screen renders.
+ * The palette and type are design tokens, written here as literals. The
+ * rest of the app ships its own reset and no stylesheet, so pulling
+ * Tailwind back in for one screen would put its preflight on top of
+ * that reset and change how every other screen renders.
  */
 const T = {
-  bg: "#f0f1ea",
-  bgSubtle: "#e8eae1",
+  bg: "#ffffff",
   card: "#ffffff",
-  cardMuted: "#f7f8f3",
-  border: "#dfe2d8",
-  borderStrong: "#c8cdbe",
-  text: "#2c3a36",
-  muted: "#66736c",
-  faint: "#939e96",
-  brand300: "#9db4b1",
-  brand600: "#3d5b59",
-  brand700: "#334b49",
+  cardMuted: "#fafafa",
+  border: "#e4e4e7",
+  borderStrong: "#d4d4d8",
+  text: "#111111",
+  muted: "#6b7280",
+  faint: "#9ca3af",
+  quote: "#b3b3b3",
+  brand600: "#111111",
+  brand700: "#000000",
   danger: "#b42318",
   success: "#2f4a2c",
 };
@@ -33,11 +32,38 @@ const T = {
 const DISPLAY = "var(--font-fraunces), ui-serif, Georgia, serif";
 const SANS = "var(--font-inter), ui-sans-serif, system-ui, sans-serif";
 
-const SELLING_POINTS = [
-  "Availability rules that respect your timezone",
-  "Start a timer, log the real session length",
-  "Invoice per session, settled and tracked",
-];
+// Shown until the real values arrive from Settings (or forever, for any
+// practice that never bothers to change them) — see loadLoginQuote().
+const DEFAULT_QUOTE_GREY = "Always believe something wonderful";
+const DEFAULT_QUOTE_BLACK = "About to Happen.";
+
+/*
+ * The quote is admin-editable from Settings → Login page, stored as two
+ * fields on the same `settings` row every other piece of practice-wide
+ * configuration already lives on. Read directly here with a bare
+ * REST call rather than pulling in settings-sync.js's load/save/
+ * subscribe machinery — this screen runs before anyone has signed in,
+ * needs exactly two strings once, and the rest of that module exists to
+ * keep a long-lived authenticated session in sync, which doesn't apply
+ * yet. Requires the settings table's SELECT policy to admit `anon`
+ * (migration 0009) — before that, every visitor hits RLS and this
+ * quietly falls back to the defaults below instead of failing visibly,
+ * which is the right failure mode for decorative sign-in copy.
+ */
+async function loadLoginQuote(supabase) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from("settings").select("value").eq("id", "practice").limit(1);
+    if (error || !data || !data.length) return null;
+    const v = data[0].value || {};
+    return {
+      grey: v.loginQuoteGrey || DEFAULT_QUOTE_GREY,
+      black: v.loginQuoteBlack || DEFAULT_QUOTE_BLACK,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /* ------------------------------------------------------- biometrics */
 /*
@@ -153,16 +179,6 @@ async function verifyBiometric(credId) {
 }
 
 /* ------------------------------------------------------------ pieces */
-function Tick() {
-  return (
-    <span style={{
-      marginTop: 3, width: 16, height: 16, borderRadius: 999, flexShrink: 0,
-      background: T.brand600, color: "#fff", display: "grid", placeItems: "center",
-      fontSize: 10, lineHeight: 1,
-    }}>✓</span>
-  );
-}
-
 function Alert({ tone, children }) {
   const tones = {
     error: { bg: "#fdf2f1", border: "#f3d4d0", color: T.danger },
@@ -235,8 +251,11 @@ export default function NuroraLogin({ onAuthenticated }) {
 
   const lockedEmail = useRef("");
 
+  const [quote, setQuote] = useState({ grey: DEFAULT_QUOTE_GREY, black: DEFAULT_QUOTE_BLACK });
+
   useEffect(() => { setBioLabel(biometricName()); }, []);
   useEffect(() => { biometricSupported().then(setBioReady); }, []);
+  useEffect(() => { loadLoginQuote(supabase).then((q) => { if (q) setQuote(q); }); }, [supabase]);
 
   const enter = useCallback((session) => {
     onAuthenticated(session);
@@ -396,8 +415,8 @@ export default function NuroraLogin({ onAuthenticated }) {
 
   if (configProblem) {
     return (
-      <Shell>
-        <h2 style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 600, color: T.text, margin: 0 }}>
+      <Shell quote={quote}>
+        <h2 style={{ fontFamily: SANS, fontSize: 22, fontWeight: 700, color: T.text, margin: 0 }}>
           Accounts aren&apos;t set up
         </h2>
         <div style={{ marginTop: 20 }}><Alert tone="error">{configProblem}</Alert></div>
@@ -407,13 +426,13 @@ export default function NuroraLogin({ onAuthenticated }) {
 
   if (offerBio) {
     return (
-      <Shell>
+      <Shell quote={quote}>
         <div style={{ textAlign: "center" }}>
           <div style={{
-            width: 64, height: 64, borderRadius: 999, background: T.bgSubtle,
+            width: 64, height: 64, borderRadius: 999, background: T.cardMuted,
             margin: "0 auto 20px", display: "grid", placeItems: "center", fontSize: 26,
           }}>☺</div>
-          <h2 style={{ fontFamily: DISPLAY, fontSize: 24, fontWeight: 600, color: T.text, margin: 0 }}>
+          <h2 style={{ fontFamily: SANS, fontSize: 20, fontWeight: 700, color: T.text, margin: 0 }}>
             Use {bioLabel} next time?
           </h2>
           <p style={{ fontSize: 14, color: T.muted, marginTop: 10, lineHeight: 1.6 }}>
@@ -437,8 +456,8 @@ export default function NuroraLogin({ onAuthenticated }) {
 
   if (screen === "unlock") {
     return (
-      <Shell>
-        <h2 style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 600, color: T.text, margin: 0 }}>
+      <Shell quote={quote}>
+        <h2 style={{ fontFamily: SANS, fontSize: 22, fontWeight: 700, color: T.text, margin: 0 }}>
           Welcome back
         </h2>
         <p style={{ fontSize: 14, color: T.muted, marginTop: 6 }}>
@@ -461,14 +480,7 @@ export default function NuroraLogin({ onAuthenticated }) {
   const isSignUp = screen === "signup";
 
   return (
-    <Shell>
-      <h2 style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 600, color: T.text, margin: 0 }}>
-        {isSignUp ? "Create your account" : "Welcome back"}
-      </h2>
-      <p style={{ fontSize: 14, color: T.muted, marginTop: 6 }}>
-        {isSignUp ? "You'll use this email and password to sign in." : "Sign in with your email and password."}
-      </p>
-
+    <Shell quote={quote}>
       <div style={{ marginTop: 26, display: "grid", gap: 16 }}>
         {error && <Alert tone="error">{error}</Alert>}
         {notice && <Alert tone="success">{notice}</Alert>}
@@ -483,23 +495,26 @@ export default function NuroraLogin({ onAuthenticated }) {
           )}
 
           <div>
-            <Label htmlFor="email">Email address</Label>
-            <input id="email" type="email" required autoComplete="email" value={email}
-              onChange={(e) => setEmail(e.target.value)} style={fieldStyle} placeholder="you@example.com" />
+            <Label htmlFor="email">{isSignUp ? "Email address" : "Email or username"}</Label>
+            {/* Sign-up still needs a real address (the confirmation link
+                goes there), so it keeps type="email" and native format
+                validation. Sign-in's label says "or username" to match
+                the reference design, but there is no separate username
+                system behind it — relaxed to type="text" so it doesn't
+                block on email format; whatever's typed still has to
+                match a real account's email to succeed. */}
+            <input id="email" type={isSignUp ? "email" : "text"} required autoComplete={isSignUp ? "email" : "username"} value={email}
+              onChange={(e) => setEmail(e.target.value)} style={fieldStyle}
+              placeholder={isSignUp ? "you@example.com" : "you@example.com or username"} />
           </div>
 
           <div>
             <Label
               htmlFor="password"
               right={
-                <div style={{ display: "flex", gap: 14 }}>
-                  {!isSignUp && (
-                    <button type="button" onClick={resetPassword} style={linkButton}>Forgot password?</button>
-                  )}
-                  <button type="button" onClick={() => setShowPassword((v) => !v)} style={linkButton}>
-                    {showPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
+                <button type="button" onClick={() => setShowPassword((v) => !v)} style={linkButton}>
+                  {showPassword ? "Hide" : "Show"}
+                </button>
               }
             >Password</Label>
             <input
@@ -512,6 +527,11 @@ export default function NuroraLogin({ onAuthenticated }) {
               style={fieldStyle}
               placeholder={isSignUp ? "At least 8 characters" : "••••••••"}
             />
+            {!isSignUp && (
+              <button type="button" onClick={resetPassword} style={{ ...linkButton, display: "block", marginTop: 10 }}>
+                Forgot password?
+              </button>
+            )}
           </div>
 
           <PrimaryButton type="submit" busy={busy}>
@@ -531,6 +551,12 @@ export default function NuroraLogin({ onAuthenticated }) {
           </p>
         )}
 
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, height: 1, background: T.border }} />
+          <span style={{ fontSize: 11, color: T.faint, letterSpacing: "0.08em" }}>OR</span>
+          <div style={{ flex: 1, height: 1, background: T.border }} />
+        </div>
+
         <div style={{ fontSize: 13.5, color: T.muted, textAlign: "center" }}>
           {isSignUp ? "Already have an account? " : "Don't have an account? "}
           <button
@@ -539,7 +565,7 @@ export default function NuroraLogin({ onAuthenticated }) {
               setScreen(isSignUp ? "signin" : "signup");
               setError(null); setNotice(null); setPassword("");
             }}
-            style={{ ...linkButton, fontSize: 13.5, color: T.brand600, fontWeight: 500 }}
+            style={{ ...linkButton, fontSize: 13.5, color: T.brand600, fontWeight: 600 }}
           >{isSignUp ? "Sign in" : "Create one"}</button>
         </div>
 
@@ -558,75 +584,42 @@ const linkButton = {
 };
 
 /*
- * The two-panel frame. The brand panel is hidden below 1024px, which a
- * media query has to do — an inline style cannot — so it goes in a
- * <style> tag scoped by class name rather than being inlined.
+ * A single centered column on a plain white page — no split brand
+ * panel. The quote is two lines by design (a lighter line, then a bold
+ * one underneath it) because that's the shape Settings → Login page
+ * edits: `quote.grey` and `quote.black`, never one merged string.
  */
-function Shell({ children }) {
+function Shell({ children, quote }) {
   return (
     <div style={{ minHeight: "100dvh", background: T.bg, fontFamily: SANS, color: T.text }}>
       <style>{`
-        .nl-grid { display: grid; grid-template-columns: 1fr; min-height: 100dvh; }
-        .nl-brand { display: none; }
-        .nl-mobile-word { display: block; }
-        @media (min-width: 1024px) {
-          .nl-grid { grid-template-columns: 1fr 1fr; }
-          .nl-brand {
-            display: flex; flex-direction: column; justify-content: space-between;
-            padding: 48px; border-right: 1px solid ${T.border}; background: ${T.bgSubtle};
-            background-image:
-              radial-gradient(60% 80% at 15% 0%, ${T.brand300}6b, transparent 70%),
-              radial-gradient(50% 70% at 90% 10%, ${T.brand300}45, transparent 70%);
-          }
-          .nl-mobile-word { display: none; }
-        }
-        .nl-form-pane { display: flex; align-items: center; justify-content: center; padding: 24px; }
-        @media (min-width: 640px) { .nl-form-pane { padding: 48px; } }
-        .nl-card { width: 100%; max-width: 384px; animation: nl-in-up .35s cubic-bezier(.22,1,.36,1) both; }
+        .nl-page { padding: 56px 24px 48px; }
+        @media (min-width: 640px) { .nl-page { padding: 72px 24px 56px; } }
+        .nl-card { width: 100%; max-width: 420px; margin: 0 auto; animation: nl-in-up .35s cubic-bezier(.22,1,.36,1) both; }
         @keyframes nl-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-        .nl-grid input:focus { border-color: ${T.brand600}; box-shadow: 0 0 0 3px ${T.brand600}1f; }
+        .nl-card input:focus { border-color: ${T.brand600}; box-shadow: 0 0 0 3px ${T.brand600}14; }
       `}</style>
 
-      <div className="nl-grid">
-        <div className="nl-brand">
-          <div style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>
-            Nurora
+      <div className="nl-page">
+        <div className="nl-card">
+          <h1 style={{
+            fontFamily: SANS, fontSize: 36, lineHeight: 1.15, fontWeight: 800,
+            letterSpacing: "-0.02em", margin: 0,
+          }}>
+            <span style={{ color: T.quote }}>{quote.grey}</span>{" "}
+            <span style={{ color: T.text }}>{quote.black}</span>
+          </h1>
+
+          <div style={{ margin: "36px 0 28px" }}>
+            <div style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 600, color: T.faint, letterSpacing: "-0.01em" }}>
+              Nurora
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: T.text, marginTop: 2, letterSpacing: "-0.01em" }}>
+              Schedule&apos;s
+            </div>
           </div>
 
-          <div style={{ maxWidth: 448 }}>
-            <h1 style={{
-              fontFamily: DISPLAY, fontSize: 38, lineHeight: 1.15, fontWeight: 600,
-              color: T.text, margin: 0, letterSpacing: "-0.01em",
-            }}>
-              Care that runs on time.
-            </h1>
-            <p style={{ marginTop: 20, fontSize: 15, color: T.muted, lineHeight: 1.7 }}>
-              Scheduling, session time tracking and payments in one place — with
-              reminders that reach both the counsellor and the client three days
-              before every appointment.
-            </p>
-            <ul style={{ marginTop: 32, padding: 0, listStyle: "none", display: "grid", gap: 12 }}>
-              {SELLING_POINTS.map((line) => (
-                <li key={line} style={{ display: "flex", alignItems: "flex-start", gap: 12, fontSize: 14 }}>
-                  <Tick />
-                  <span style={{ color: T.muted }}>{line}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <p style={{ fontSize: 12, color: T.faint, margin: 0 }}>
-            Your session notes stay private to you and your client.
-          </p>
-        </div>
-
-        <div className="nl-form-pane">
-          <div className="nl-card">
-            <div className="nl-mobile-word" style={{
-              fontFamily: DISPLAY, fontSize: 20, fontWeight: 600, marginBottom: 32, letterSpacing: "-0.01em",
-            }}>Nurora</div>
-            {children}
-          </div>
+          {children}
         </div>
       </div>
     </div>

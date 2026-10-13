@@ -477,6 +477,12 @@ function seed() {
       // Interest turning into a booking) — {{name}} gets swapped in per client.
       bookingConfirmedMessageTemplate:
         "Thank you {{name}}, advance received. Kindly be here on time \u2014 you will get your appointment confirmation and location from your Therapist\u2019s number, so kindly save it for future bookings. Kindly be at the location 10 minutes before your appointment time.",
+      // The two-line quote on the sign-in screen, before anyone is signed
+      // in \u2014 read straight from this table by nurora-login.jsx itself,
+      // which is why `settings` grants anon SELECT (see the 0009
+      // migration): there's no session yet for that screen to use.
+      loginQuoteGrey: "Always believe something wonderful",
+      loginQuoteBlack: "About to Happen.",
     },
   };
 }
@@ -7848,8 +7854,23 @@ function SettingsScreen({ data, act }) {
       </Field>
       <Field label="Booking confirmed message" hint={<>Shown right after a booking is confirmed. Use <code style={{ background: C.chip, borderRadius: 4, padding: "1px 5px" }}>{"{{name}}"}</code> for the client's name.</>}>
         <textarea value={s.bookingConfirmedMessageTemplate || ""} onChange={(e) => setS({ ...s, bookingConfirmedMessageTemplate: e.target.value })}
-          rows={5} style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.6, marginBottom: 20 }} />
+          rows={5} style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.6 }} />
       </Field>
+
+      <div style={{ fontSize: 13, color: C.soft, margin: "24px 0 16px" }}>Login page</div>
+      <Field label="Grey line" hint="The lighter, first line of the quote.">
+        <Input value={s.loginQuoteGrey || ""} onChange={(e) => setS({ ...s, loginQuoteGrey: e.target.value })} />
+      </Field>
+      <Field label="Black line" hint="The bold, emphasized line underneath.">
+        <Input value={s.loginQuoteBlack || ""} onChange={(e) => setS({ ...s, loginQuoteBlack: e.target.value })} />
+      </Field>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontSize: 10, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Preview</div>
+        <div style={{ fontSize: 22, lineHeight: 1.2, fontWeight: 800, letterSpacing: "-0.01em" }}>
+          <span style={{ color: C.faint }}>{s.loginQuoteGrey || ""}</span>{" "}
+          <span style={{ color: C.ink }}>{s.loginQuoteBlack || ""}</span>
+        </div>
+      </div>
 
       <Btn full kind="solid" onClick={() => { act.updateSettings(s); setSaved(true); setTimeout(() => setSaved(false), 1600); }}>
         {saved ? "Saved" : "Save settings"}
