@@ -477,6 +477,12 @@ function seed() {
       // Interest turning into a booking) — {{name}} gets swapped in per client.
       bookingConfirmedMessageTemplate:
         "Thank you {{name}}, advance received. Kindly be here on time \u2014 you will get your appointment confirmation and location from your Therapist\u2019s number, so kindly save it for future bookings. Kindly be at the location 10 minutes before your appointment time.",
+      // The two-line quote on the sign-in screen, before anyone is signed
+      // in \u2014 read straight from this table by nurora-login.jsx itself,
+      // which is why `settings` grants anon SELECT (see the 0009
+      // migration): there's no session yet for that screen to use.
+      loginQuoteGrey: "Always believe something wonderful",
+      loginQuoteBlack: "About to Happen.",
     },
   };
 }
@@ -1215,42 +1221,87 @@ function Select({ children, ...p }) {
  * border a text box gets. `onSettle` is this control's equivalent of blur
  * — a native blur fires the moment the menu opens, which would mark the
  * field touched and flash an error while the person is still choosing.
+ *
+ * `searchable` opts into typing to filter the list — a real combobox,
+ * the pattern most pickers with more than a handful of options have
+ * converged on (Linear's assignee field, GitHub's reviewer picker,
+ * Notion's page-link search). Left off by default: for a 2-3 option
+ * enum like Gender or Mode, turning the trigger into a text input would
+ * pop a mobile keyboard just to tap one of two things, which is worse,
+ * not better — the plain tap-and-pick button stays the right control
+ * there. It's on wherever the list is actually long enough that typing
+ * saves scrolling: counsellors and the service/category list.
  */
-function GlassSelect({ value, onChange, options, placeholder = "Select", style, id, invalid, onSettle }) {
+function GlassSelect({ value, onChange, options, placeholder = "Select", style, id, invalid, onSettle, searchable }) {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
-  const btnRef = useRef(null);
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
   const opts = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
   const selected = opts.find((o) => o.value === value);
 
+  const filtered = searchable && query.trim()
+    ? opts.filter((o) => o.divider || o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : opts;
+  const pickable = filtered.filter((o) => !o.divider);
+
   const openMenu = () => {
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
+    if (wrapRef.current) {
+      const r = wrapRef.current.getBoundingClientRect();
       setRect({ top: r.bottom + 6, left: r.left, width: r.width });
     }
+    setHighlight(0);
     setOpen(true);
   };
-
   // Closing the menu is the moment this field has been dealt with, whether
   // something was picked or it was dismissed.
-  const closeMenu = () => { setOpen(false); if (onSettle) onSettle(); };
+  const closeMenu = () => { setOpen(false); setQuery(""); if (onSettle) onSettle(); };
+  const pick = (o) => { onChange(o.value); closeMenu(); };
+
+  function onKeyDown(e) {
+    if (!searchable) return;
+    if (!open) { if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); openMenu(); } return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, pickable.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (pickable[highlight]) pick(pickable[highlight]); }
+    else if (e.key === "Escape") { e.preventDefault(); closeMenu(); inputRef.current?.blur(); }
+  }
+
+  const triggerStyle = {
+    ...inputStyle, paddingRight: 34, display: "flex", alignItems: "center", justifyContent: "space-between",
+    cursor: searchable ? "text" : "pointer", textAlign: "left",
+    ...(invalid ? { borderColor: "#e4a49e" } : null), ...(style || {}),
+  };
 
   return (
-    <>
-      <button ref={btnRef} id={id} type="button" onClick={openMenu}
-        aria-invalid={invalid ? "true" : undefined}
-        aria-describedby={invalid && id ? `${id}-error` : undefined}
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      {searchable ? (
+        <input ref={inputRef} id={id} type="text" autoComplete="off"
+          value={open ? query : (selected ? selected.label : "")}
+          onFocus={openMenu}
+          onChange={(e) => { setQuery(e.target.value); setHighlight(0); if (!open) openMenu(); }}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+          aria-invalid={invalid ? "true" : undefined}
+          aria-describedby={invalid && id ? `${id}-error` : undefined}
+          style={triggerStyle} />
+      ) : (
+        <button ref={inputRef} id={id} type="button" onClick={openMenu}
+          aria-invalid={invalid ? "true" : undefined}
+          aria-describedby={invalid && id ? `${id}-error` : undefined}
+          style={triggerStyle}>
+          <span style={{ color: selected ? C.ink : C.faint, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selected ? selected.label : placeholder}
+          </span>
+        </button>
+      )}
+      <ChevronDown size={15} strokeWidth={1.7} color={C.soft}
         style={{
-          ...inputStyle, paddingRight: 34, display: "flex", alignItems: "center", justifyContent: "space-between",
-          cursor: "pointer", textAlign: "left",
-          ...(invalid ? { borderColor: "#e4a49e" } : null), ...(style || {}),
-        }}>
-        <span style={{ color: selected ? C.ink : C.faint, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {selected ? selected.label : placeholder}
-        </span>
-        <ChevronDown size={15} strokeWidth={1.7} color={C.soft}
-          style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s", flexShrink: 0, marginLeft: 6 }} />
-      </button>
+          position: "absolute", right: 12, top: "50%", pointerEvents: "none",
+          transform: open ? "translateY(-50%) rotate(180deg)" : "translateY(-50%)", transition: "transform .2s",
+        }} />
 
       {open && rect && (
         <>
@@ -1261,15 +1312,24 @@ function GlassSelect({ value, onChange, options, placeholder = "Select", style, 
             background: "rgba(255,255,255,0.6)", backdropFilter: "blur(26px) saturate(190%)", WebkitBackdropFilter: "blur(26px) saturate(190%)",
             border: "1px solid rgba(255,255,255,0.8)", boxShadow: "0 14px 36px rgba(20,20,20,0.16), 0 4px 12px rgba(20,20,20,0.08)",
           }}>
-            {opts.map((o, i) => o.divider ? (
+            {searchable && filtered.length === 0 && (
+              <div style={{ padding: "13px 13px", fontSize: 13, color: C.faint }}>No matches.</div>
+            )}
+            {filtered.map((o, i) => o.divider ? (
               <div key={`div-${i}`} style={{ textAlign: "center", padding: "10px 6px 7px", marginTop: i === 0 ? 0 : 4 }}>
                 <span style={{ fontSize: 14, color: C.soft, letterSpacing: "0.03em" }}>{o.label}</span>
               </div>
             ) : (
-              <button key={o.value} type="button" onClick={() => { onChange(o.value); closeMenu(); }}
+              <button key={o.value} type="button"
+                // Keeps focus on the search input on mousedown, so the
+                // list doesn't blur-close before the click can register.
+                onMouseDown={(e) => searchable && e.preventDefault()}
+                onClick={() => pick(o)}
                 style={{
                   width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "11px 13px", background: value === o.value ? "rgba(0,0,0,0.05)" : "transparent",
+                  padding: "11px 13px",
+                  background: value === o.value ? "rgba(0,0,0,0.05)"
+                    : (searchable && pickable[highlight]?.value === o.value ? "rgba(0,0,0,0.035)" : "transparent"),
                   border: "none", cursor: "pointer", textAlign: "left", borderRadius: 14, fontFamily: FONT,
                 }}>
                 <span style={{ fontSize: 14, color: C.ink, fontWeight: value === o.value ? 600 : 400 }}>{o.label}</span>
@@ -1279,7 +1339,7 @@ function GlassSelect({ value, onChange, options, placeholder = "Select", style, 
           </div>
         </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -4592,41 +4652,44 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
                 background: "rgba(255,255,255,0.92)", backdropFilter: "blur(22px) saturate(180%)", WebkitBackdropFilter: "blur(22px) saturate(180%)",
                 border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 16px 32px rgba(20,20,20,0.14), 0 4px 10px rgba(20,20,20,0.06)",
               };
-              if (matches.length === 1) {
-                const m = matches[0];
+              if (matches.length >= 1) {
+                // One shared, always-clickable list — a single match used
+                // to render as a plain, non-interactive "confirmed" card
+                // instead of a button, with no selected/pressed state of
+                // its own. It auto-selects correctly (the effect above
+                // sets clientId the moment there's exactly one match), but
+                // nothing about it looked any different from inert text,
+                // so tapping it — the only thing that looked tappable —
+                // appeared to do nothing. Now every match, however many
+                // there are, is the same button with the same dark
+                // "selected" state, so a single match simply starts
+                // already selected rather than looking unselectable.
                 return (
                   <div style={panelStyle}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 2px" }}>
-                      <Check size={16} strokeWidth={2} color={C.ink} />
-                      <div>
-                        <div style={{ fontSize: 14, color: C.ink }}>{m.name} <span style={{ color: C.soft, fontWeight: 400 }}>· {m.age}</span></div>
-                        <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
-                          {[m.phone || m.whatsapp, m.category, m.mode].filter(Boolean).join(" · ")}
-                        </div>
+                    {matches.length > 1 && (
+                      <div style={{ fontSize: 10, color: C.soft, textTransform: "uppercase", letterSpacing: "0.06em", padding: "2px 4px 8px" }}>
+                        Multiple matches — pick one
                       </div>
-                    </div>
-                  </div>
-                );
-              }
-              if (matches.length > 1) {
-                return (
-                  <div style={panelStyle}>
-                    <div style={{ fontSize: 10, color: C.soft, textTransform: "uppercase", letterSpacing: "0.06em", padding: "2px 4px 8px" }}>
-                      Multiple matches — pick one
-                    </div>
+                    )}
                     <div style={{ display: "grid", gap: 6, maxHeight: 220, overflowY: "auto" }}>
-                      {matches.map((m) => (
-                        <button key={m.id} onClick={() => setForm({ ...form, clientId: m.id, followupName: m.name })}
-                          style={{
-                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                            padding: "10px 13px", borderRadius: 12, cursor: "pointer",
-                            border: `1px solid ${form.clientId === m.id ? "#111" : C.line}`,
-                            background: form.clientId === m.id ? "#111" : "#fff",
-                          }}>
-                          <span style={{ fontSize: 13.5, color: form.clientId === m.id ? "#fff" : C.ink }}>{m.name} · {m.age}</span>
-                          <span style={{ fontSize: 12, color: form.clientId === m.id ? "rgba(255,255,255,0.7)" : C.soft }}>{m.phone || m.whatsapp}</span>
-                        </button>
-                      ))}
+                      {matches.map((m) => {
+                        const selected = form.clientId === m.id;
+                        return (
+                          <button key={m.id} onClick={() => setForm({ ...form, clientId: m.id, followupName: m.name })}
+                            style={{
+                              display: "flex", justifyContent: "space-between", alignItems: "center",
+                              padding: "10px 13px", borderRadius: 12, cursor: "pointer",
+                              border: `1px solid ${selected ? "#111" : C.line}`,
+                              background: selected ? "#111" : "#fff",
+                            }}>
+                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              {selected && <Check size={14} strokeWidth={2.4} color="#fff" style={{ flexShrink: 0 }} />}
+                              <span style={{ fontSize: 13.5, color: selected ? "#fff" : C.ink }}>{m.name} · {m.age}</span>
+                            </span>
+                            <span style={{ fontSize: 12, color: selected ? "rgba(255,255,255,0.7)" : C.soft }}>{m.phone || m.whatsapp}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -4669,7 +4732,7 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
           </Field>
 
           <Field label="Service / Category" required htmlFor="na-category" error={fieldErr("na-category")}>
-            <GlassSelect id="na-category" invalid={!!fieldErr("na-category")}
+            <GlassSelect id="na-category" invalid={!!fieldErr("na-category")} searchable
               value={form.category} onChange={(c) => setForm({ ...form, category: c })}
               onSettle={() => v.touch("na-category")}
               placeholder="Select service"
@@ -4702,7 +4765,7 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
             {counsellor ? counsellor.name : user.name}
           </div>
         ) : (
-          <GlassSelect id="na-counsellor" invalid={!!fieldErr("na-counsellor")}
+          <GlassSelect id="na-counsellor" invalid={!!fieldErr("na-counsellor")} searchable
             value={form.counsellorId} onChange={(cid) => setForm({ ...form, counsellorId: cid, time: "" })}
             onSettle={() => v.touch("na-counsellor")}
             placeholder="Select counsellor"
@@ -5792,7 +5855,7 @@ function SessionsScreen({ data, user, now }) {
       </div>
       {user.role === "admin" && (
         <div style={{ marginBottom: 18 }}>
-          <GlassSelect value={cid} onChange={setCid}
+          <GlassSelect value={cid} onChange={setCid} searchable
             options={[{ value: "", label: "All counsellors" }, ...data.counsellors.map((c) => ({ value: c.id, label: c.name }))]} />
         </div>
       )}
@@ -7848,8 +7911,23 @@ function SettingsScreen({ data, act }) {
       </Field>
       <Field label="Booking confirmed message" hint={<>Shown right after a booking is confirmed. Use <code style={{ background: C.chip, borderRadius: 4, padding: "1px 5px" }}>{"{{name}}"}</code> for the client's name.</>}>
         <textarea value={s.bookingConfirmedMessageTemplate || ""} onChange={(e) => setS({ ...s, bookingConfirmedMessageTemplate: e.target.value })}
-          rows={5} style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.6, marginBottom: 20 }} />
+          rows={5} style={{ ...inputStyle, height: "auto", resize: "vertical", lineHeight: 1.6 }} />
       </Field>
+
+      <div style={{ fontSize: 13, color: C.soft, margin: "24px 0 16px" }}>Login page</div>
+      <Field label="Grey line" hint="The lighter, first line of the quote.">
+        <Input value={s.loginQuoteGrey || ""} onChange={(e) => setS({ ...s, loginQuoteGrey: e.target.value })} />
+      </Field>
+      <Field label="Black line" hint="The bold, emphasized line underneath.">
+        <Input value={s.loginQuoteBlack || ""} onChange={(e) => setS({ ...s, loginQuoteBlack: e.target.value })} />
+      </Field>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontSize: 10, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Preview</div>
+        <div style={{ fontSize: 22, lineHeight: 1.2, fontWeight: 800, letterSpacing: "-0.01em" }}>
+          <span style={{ color: C.faint }}>{s.loginQuoteGrey || ""}</span>{" "}
+          <span style={{ color: C.ink }}>{s.loginQuoteBlack || ""}</span>
+        </div>
+      </div>
 
       <Btn full kind="solid" onClick={() => { act.updateSettings(s); setSaved(true); setTimeout(() => setSaved(false), 1600); }}>
         {saved ? "Saved" : "Save settings"}
