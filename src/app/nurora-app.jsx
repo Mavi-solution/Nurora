@@ -7708,6 +7708,19 @@ function SettingsScreen({ data, act }) {
   const [s, setS] = useState(data.settings);
   const [saved, setSaved] = useState(false);
   const num = (v) => (v === "" ? "" : Number(v));
+  // The quote is the one thing on this screen that's shown to every
+  // visitor before they've even signed in — a stray edit there is far
+  // more visible than, say, a wrong grace period. Locked behind the
+  // same Admin PIN set further down this screen until it's re-entered;
+  // resets back to locked the moment this screen is left and reopened,
+  // rather than staying unlocked for the rest of the session.
+  const [quoteUnlocked, setQuoteUnlocked] = useState(false);
+  const [quotePin, setQuotePin] = useState("");
+  const [quotePinError, setQuotePinError] = useState(false);
+  const unlockQuote = () => {
+    if (quotePin === (s.adminPin || "")) { setQuoteUnlocked(true); setQuotePinError(false); setQuotePin(""); }
+    else setQuotePinError(true);
+  };
   const sample = computeBill(150 * 60, { ...s, basePrice: Number(s.basePrice) || 0, includedMinutes: Number(s.includedMinutes) || 0, extensionMinutes: Number(s.extensionMinutes) || 30, extensionPrice: Number(s.extensionPrice) || 0, graceMinutes: Number(s.graceMinutes) || 0 });
 
   return (
@@ -7915,19 +7928,45 @@ function SettingsScreen({ data, act }) {
       </Field>
 
       <div style={{ fontSize: 13, color: C.soft, margin: "24px 0 16px" }}>Login page</div>
-      <Field label="Grey line" hint="The lighter, first line of the quote.">
-        <Input value={s.loginQuoteGrey || ""} onChange={(e) => setS({ ...s, loginQuoteGrey: e.target.value })} />
-      </Field>
-      <Field label="Black line" hint="The bold, emphasized line underneath.">
-        <Input value={s.loginQuoteBlack || ""} onChange={(e) => setS({ ...s, loginQuoteBlack: e.target.value })} />
-      </Field>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 16 }}>
         <div style={{ fontSize: 10, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Preview</div>
         <div style={{ fontSize: 22, lineHeight: 1.2, fontWeight: 800, letterSpacing: "-0.01em" }}>
           <span style={{ color: C.faint }}>{s.loginQuoteGrey || ""}</span>{" "}
           <span style={{ color: C.ink }}>{s.loginQuoteBlack || ""}</span>
         </div>
       </div>
+
+      {quoteUnlocked ? (
+        <>
+          <Field label="Grey line" hint="The lighter, first line of the quote.">
+            <Input value={s.loginQuoteGrey || ""} onChange={(e) => setS({ ...s, loginQuoteGrey: e.target.value })} />
+          </Field>
+          <Field label="Black line" hint="The bold, emphasized line underneath.">
+            <Input value={s.loginQuoteBlack || ""} onChange={(e) => setS({ ...s, loginQuoteBlack: e.target.value })} />
+          </Field>
+          <button onClick={() => setQuoteUnlocked(false)} style={{
+            border: "none", background: "none", padding: 0, marginBottom: 20, cursor: "pointer",
+            fontSize: 12.5, color: C.soft, textDecoration: "underline", textUnderlineOffset: 2,
+          }}>Lock again</button>
+        </>
+      ) : (
+        // Every visitor sees this quote before they've even signed in, so
+        // a stray edit here is far more visible than most other settings
+        // — locked behind the same Admin PIN below until re-entered. This
+        // resets to locked the next time this screen is opened; it isn't
+        // a one-time unlock for the rest of the session.
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: C.ink, marginBottom: 10 }}>Enter the Admin PIN to edit this quote.</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Input inputMode="numeric" value={quotePin}
+              onChange={(e) => { setQuotePin(e.target.value); setQuotePinError(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") unlockQuote(); }}
+              placeholder="PIN" style={{ flex: 1 }} />
+            <Btn kind="solid" onClick={unlockQuote}>Unlock</Btn>
+          </div>
+          {quotePinError && <div style={{ fontSize: 12, color: "#b42318", marginTop: 8 }}>Incorrect PIN.</div>}
+        </div>
+      )}
 
       <Btn full kind="solid" onClick={() => { act.updateSettings(s); setSaved(true); setTimeout(() => setSaved(false), 1600); }}>
         {saved ? "Saved" : "Save settings"}
