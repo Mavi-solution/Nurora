@@ -73,7 +73,7 @@ import {
   ChevronLeft, Filter, Users, FileText, MoreHorizontal, Plus, X, Check, ArrowLeft,
   LogOut, Settings as SettingsIcon, BarChart3, CalendarOff, Trash2, Download, Share2, Search,
   Mic, ArrowUp, ArrowRight, Headphones, Phone, ThumbsUp, Pencil, User, Tag, Hash, CalendarClock, Flag, Baby,
-  Send, Copy, MessageCircle, MapPin, FileCheck, Link as LinkIcon, UserCheck, Star, Zap, Shield,
+  Send, Copy, MessageCircle, MapPin, FileCheck, Link as LinkIcon, UserCheck, Star, Zap, Shield, Award,
 } from "lucide-react";
 
 /* ---------------------------------------------------------------- tokens */
@@ -6470,8 +6470,13 @@ function CounsellorDetail({ data, act, id, user, go }) {
             {[
               ["attendance", "Attendance"], ["nubills", "Nubills"], ["personas", "Persona"], ["bric", "BRIC"],
               ["reviews", "Google Reviews"], ["followups", "Follow-up & Commitments"], ["mysummary", "My Summary"], ["weekoffs", "Week-offs and Leave"],
+              ["research", "Research and Analysis"],
             ].map(([key, label]) => {
-              const enabled = (c.permissions || {})[key] !== false;
+              // Research and Analysis is opt-in (off unless explicitly
+              // granted) — everything else here is opt-out (on unless
+              // explicitly disabled) — since it surfaces cross-client
+              // business data, not just a counsellor's own workflow.
+              const enabled = key === "research" ? (c.permissions || {}).research === true : (c.permissions || {})[key] !== false;
               const lockedOff = c.isOwner && key === "weekoffs";
               return (
                 <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.hair}` }}>
@@ -7698,6 +7703,841 @@ function MySummaryScreen({ data, user }) {
         <Btn full kind="solid" onClick={downloadYearlyReport} icon={<Download size={15} strokeWidth={1.6} />}>
           Download yearly report
         </Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------ research & analysis */
+// Pure read-only analytics derived from fields Persona already captures — no
+// new booking/interest capture was added for this, so it's limited to what's
+// already on file: a primary-concern/need-for-counselling keyword tally, and
+// a ranking of the Area clients come from.
+const KEYWORD_STOPWORDS = new Set((
+  "a about after again all also am an and any are as at be because been before being but by can could did do does doing for from " +
+  "had has have having he her here hers him his how i if in into is it its just me more most my no not now of off on once only or " +
+  "other our out over own same she should so some such than that the their them then there these they this those through to too " +
+  "under until up very was we were what when where which while who whom why will with would you your feel feeling feels felt " +
+  "want wants wanted need needs needed get getting got like really lot lots much many often always sometimes since still " +
+  "bit little going go goes went been due help helps helping able unable"
+).split(" "));
+function personaKeywordsFrom(text) {
+  return String(text || "").toLowerCase().replace(/[^a-z\s'-]/g, " ").split(/\s+/)
+    .map((w) => w.replace(/^['-]+|['-]+$/g, ""))
+    .filter((w) => w.length >= 4 && !KEYWORD_STOPWORDS.has(w));
+}
+function keywordAnalysis(data) {
+  const map = new Map();
+  (data.clients || []).forEach((c) => {
+    const p = c.persona;
+    if (!p) return;
+    const words = new Set([...personaKeywordsFrom(p.primaryConcern), ...personaKeywordsFrom(p.needForCounselling)]);
+    words.forEach((w) => map.set(w, (map.get(w) || 0) + 1));
+  });
+  return [...map.entries()].map(([word, count]) => ({ word, count }))
+    .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word));
+}
+function placeRanking(data) {
+  const m = new Map();
+  (data.clients || []).forEach((c) => {
+    const raw = ((c.persona || {}).area || "").trim().replace(/\s+/g, " ");
+    if (!raw) return;
+    const key = raw.toLowerCase();
+    const cur = m.get(key) || { name: raw.charAt(0).toUpperCase() + raw.slice(1), n: 0 };
+    cur.n += 1; m.set(key, cur);
+  });
+  return [...m.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+}
+function ResearchScreen({ data }) {
+  const [tab, setTab] = useState("keywords");
+  const [q, setQ] = useState("");
+  const keywords = useMemo(() => keywordAnalysis(data), [data.clients]);
+  const places = useMemo(() => placeRanking(data), [data.clients]);
+  const needle = q.trim().toLowerCase();
+  const kRows = keywords.filter((r) => !needle || r.word.toLowerCase().includes(needle));
+  const maxK = kRows.length ? kRows[0].count : 1;
+  const totalPlaces = places.reduce((t, r) => t + r.n, 0);
+  const filledPersonas = data.clients.filter((c) => c.persona).length;
+
+  return (
+    <div style={{ padding: "8px 16px 24px" }}>
+      <SectionLabel>Research and Analysis</SectionLabel>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        {[["keywords", "Keyword analysis"], ["places", "Places"]].map(([k, l]) => (
+          <button key={k} onClick={() => { setTab(k); setQ(""); }} style={{
+            padding: "9px 14px", fontSize: 13, borderRadius: 12, cursor: "pointer",
+            border: `1px solid ${tab === k ? "#111" : C.line}`, background: tab === k ? "#111" : "#fff", color: tab === k ? "#fff" : C.mid,
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "keywords" ? (
+        <>
+          <div style={{ marginBottom: 14 }}>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search keywords" />
+          </div>
+          <div style={{ fontSize: 12.5, color: C.soft, marginBottom: 12, lineHeight: 1.5 }}>
+            Words people use most in each client's primary concern and need for counselling.
+          </div>
+          {kRows.length === 0 ? (
+            <Empty text={keywords.length ? "No keywords match that search." : "No keywords yet — they appear once Personas with a primary concern or need for counselling are filled in."} />
+          ) : (
+            <GroupedCard>
+              {kRows.map((r, i) => (
+                <div key={r.word} style={{ padding: "12px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.hair}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ width: 22, fontSize: 12, color: C.faint, textAlign: "right", flexShrink: 0 }}>{i + 1}</span>
+                    <span style={{ flex: 1, fontSize: 14, color: C.ink, wordBreak: "break-word" }}>{r.word}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, background: C.chip, borderRadius: 999, padding: "4px 11px", flexShrink: 0 }}>{r.count}</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 999, background: C.chip, marginTop: 8, marginLeft: 34 }}>
+                    <div style={{ height: 4, borderRadius: 999, width: `${(r.count / maxK) * 100}%`, background: RING_DONE_GRADIENT }} />
+                  </div>
+                </div>
+              ))}
+            </GroupedCard>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12.5, color: C.soft, marginBottom: 12, lineHeight: 1.5 }}>
+            Where clients come from, most first — from the Area filled in their Persona. {totalPlaces} of {filledPersonas} persona{filledPersonas === 1 ? "" : "s"} {filledPersonas === 1 ? "has" : "have"} it filled in.
+          </div>
+          {places.length === 0 ? (
+            <Empty text="No areas yet — they appear once Personas are filled in." />
+          ) : (
+            <GroupedCard>
+              {places.map((r, i) => (
+                <div key={r.name} style={{ padding: "12px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.hair}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{
+                      width: 22, height: 22, borderRadius: 999, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, fontWeight: 700, color: i === 0 ? "#fff" : C.soft, background: i === 0 ? RING_DONE_GRADIENT : C.chip,
+                    }}>{i + 1}</span>
+                    <span style={{ flex: 1, fontSize: 14, color: C.ink, fontWeight: i === 0 ? 700 : 500, wordBreak: "break-word" }}>{r.name}</span>
+                    <span style={{ fontSize: 12, color: C.soft }}>{totalPlaces ? Math.round((r.n / totalPlaces) * 100) : 0}%</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.ink, background: C.chip, borderRadius: 999, padding: "4px 11px", flexShrink: 0 }}>{r.n}</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 999, background: C.chip, marginTop: 8, marginLeft: 34 }}>
+                    <div style={{ height: 4, borderRadius: 999, width: `${(r.n / places[0].n) * 100}%`, background: RING_DONE_GRADIENT }} />
+                  </div>
+                </div>
+              ))}
+            </GroupedCard>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------ process & guide */
+// Admin writes the clinic's rules, grouped into categories; every counsellor
+// ticks each statement once they've read and will follow it. Ticks live per
+// person in data.guide.acks.
+const GUIDE_DEFAULT_CATEGORIES = ["Clinic Process", "Company Ethics", "App Process", "Client Boundaries", "Client Booking process", "Company Guidelines"];
+const GUIDE_SAGE = "#9cc2a6";
+const GUIDE_TEAL = "#1f8a9b";
+function guideOf(data) {
+  const g = data.guide || {};
+  return {
+    categories: g.categories || GUIDE_DEFAULT_CATEGORIES.map((name) => ({ id: "gc_" + name.toLowerCase().replace(/[^a-z]+/g, ""), name, statements: [] })),
+    acks: g.acks || {},
+  };
+}
+function GuideTick({ on, onClick, disabled, size = 30 }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} aria-pressed={on} aria-label={on ? "Ticked" : "Tick"} style={{
+      width: size, height: size, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: disabled ? "default" : "pointer",
+      display: "flex", alignItems: "center", justifyContent: "center", WebkitTapHighlightColor: "transparent",
+      border: on ? "none" : `1.5px solid ${C.line}`,
+      background: on ? `linear-gradient(135deg, ${GUIDE_SAGE}, ${GUIDE_TEAL})` : "#fff",
+      boxShadow: on ? "0 3px 10px rgba(31,138,155,.28)" : "none",
+      transition: "background .25s ease, box-shadow .25s ease, transform .2s ease", transform: on ? "scale(1)" : "scale(.96)",
+    }}>
+      <Check size={Math.round(size * 0.53)} strokeWidth={3.2} color="#fff" style={{ opacity: on ? 1 : 0, transition: "opacity .2s ease" }} />
+    </button>
+  );
+}
+function GuideScreen({ data, act, user }) {
+  const isAdmin = user.role === "admin";
+  const g = guideOf(data);
+  const me = user.counsellorId || user.name;
+  const mine = g.acks[me] || {};
+  const [open, setOpen] = useState({});
+  const [newCat, setNewCat] = useState("");
+  const [drafts, setDrafts] = useState({});
+  const [editing, setEditing] = useState(null);
+  const [seeWho, setSeeWho] = useState(null);
+  const people = data.counsellors.filter((c) => !c.isOwner);
+  const allIds = g.categories.flatMap((c) => c.statements.map((s) => s.id));
+  const doneAll = allIds.filter((id) => mine[id]).length;
+  return (
+    <div style={{ padding: "6px 16px 24px" }}>
+      <div style={{ fontSize: 12.5, color: C.soft, lineHeight: 1.5, margin: "4px 2px 16px" }}>
+        {isAdmin
+          ? "Add categories and write the statements under each. Everyone on the team ticks each statement once they have read it."
+          : "Read each statement and tick it to confirm you have understood and will follow it."}
+      </div>
+      {!isAdmin && allIds.length > 0 && (
+        <div style={{ borderRadius: 18, padding: "14px 16px", marginBottom: 16, color: "#fff", background: `linear-gradient(135deg, ${GUIDE_SAGE}, ${GUIDE_TEAL})` }}>
+          <div style={{ fontSize: 13, opacity: 0.92 }}>Your progress</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{doneAll} / {allIds.length} <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>ticked</span></div>
+          <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.35)", marginTop: 10, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${(doneAll / allIds.length) * 100}%`, background: "#fff", borderRadius: 999, transition: "width .4s ease" }} />
+          </div>
+        </div>
+      )}
+      {g.categories.map((cat) => {
+        const isOpen = open[cat.id] !== false && (open[cat.id] || cat.statements.length > 0 || isAdmin);
+        const done = cat.statements.filter((s) => mine[s.id]).length;
+        return (
+          <div key={cat.id} style={{ border: `1px solid ${C.line}`, borderRadius: 18, background: "#fff", marginBottom: 12, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}
+              onClick={() => setOpen({ ...open, [cat.id]: !isOpen })}>
+              {editing && editing.catId === cat.id && editing.rename !== undefined ? (
+                <input autoFocus value={editing.rename} onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setEditing({ ...editing, rename: e.target.value })}
+                  onBlur={() => { if (editing.rename.trim()) act.guideRenameCategory(cat.id, editing.rename.trim()); setEditing(null); }}
+                  style={{ ...inputStyle, padding: "7px 10px", flex: 1 }} />
+              ) : (
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>{cat.name}</div>
+                  <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2 }}>
+                    {cat.statements.length === 0 ? "No statements yet" : isAdmin ? `${cat.statements.length} statement${cat.statements.length > 1 ? "s" : ""}` : `${done} of ${cat.statements.length} ticked`}
+                  </div>
+                </div>
+              )}
+              {isAdmin && !(editing && editing.catId === cat.id) && (
+                <>
+                  <button type="button" aria-label="Rename category" onClick={(e) => { e.stopPropagation(); setEditing({ catId: cat.id, rename: cat.name }); }} style={{ background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }}>
+                    <Pencil size={14} strokeWidth={1.5} color={C.faint} />
+                  </button>
+                  <button type="button" aria-label="Delete category" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${cat.name}" and its statements?`)) act.guideDeleteCategory(cat.id); }} style={{ background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }}>
+                    <Trash2 size={14} strokeWidth={1.5} color={C.faint} />
+                  </button>
+                </>
+              )}
+              <ChevronDown size={16} strokeWidth={1.6} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
+            </div>
+            {isOpen && (
+              <div style={{ borderTop: `1px solid ${C.hair}` }}>
+                {cat.statements.map((st, i) => {
+                  const ackedBy = people.filter((p) => (g.acks[p.id] || {})[st.id]);
+                  const isEd = editing && editing.stId === st.id;
+                  return (
+                    <div key={st.id} style={{ padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.hair}` }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {isEd ? (
+                            <textarea autoFocus rows={3} value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+                              style={{ ...inputStyle, height: "auto", lineHeight: 1.5, resize: "vertical" }} />
+                          ) : (
+                            <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{st.text}</div>
+                          )}
+                          {isAdmin && (
+                            <div style={{ display: "flex", gap: 14, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              {isEd ? (
+                                <>
+                                  <button type="button" onClick={() => { if (editing.text.trim()) act.guideEditStatement(cat.id, st.id, editing.text.trim()); setEditing(null); }} style={{ background: "none", border: "none", padding: 0, fontSize: 12.5, color: GUIDE_TEAL, fontWeight: 600, cursor: "pointer" }}>Save</button>
+                                  <button type="button" onClick={() => setEditing(null)} style={{ background: "none", border: "none", padding: 0, fontSize: 12.5, color: C.soft, cursor: "pointer" }}>Cancel</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button type="button" onClick={() => setEditing({ catId: cat.id, stId: st.id, text: st.text })} style={{ background: "none", border: "none", padding: 0, fontSize: 12.5, color: C.soft, cursor: "pointer" }}>Edit</button>
+                                  <button type="button" onClick={() => act.guideDeleteStatement(cat.id, st.id)} style={{ background: "none", border: "none", padding: 0, fontSize: 12.5, color: "#b42318", cursor: "pointer" }}>Delete</button>
+                                  <button type="button" onClick={() => setSeeWho(seeWho === st.id ? null : st.id)} style={{ background: "none", border: "none", padding: 0, fontSize: 12.5, color: GUIDE_TEAL, cursor: "pointer" }}>
+                                    {ackedBy.length}/{people.length} ticked
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {isAdmin && seeWho === st.id && (
+                            <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {people.map((p) => {
+                                const ok = !!(g.acks[p.id] || {})[st.id];
+                                return (
+                                  <span key={p.id} style={{
+                                    fontSize: 11.5, padding: "4px 10px", borderRadius: 999,
+                                    background: ok ? "rgba(31,138,155,.12)" : C.chip, color: ok ? GUIDE_TEAL : C.faint, fontWeight: ok ? 600 : 400,
+                                  }}>{ok ? "✓ " : ""}{p.name}</span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        {!isAdmin && <GuideTick on={!!mine[st.id]} onClick={() => act.guideTick(me, st.id)} />}
+                      </div>
+                    </div>
+                  );
+                })}
+                {isAdmin && (
+                  <div style={{ padding: "12px 16px", borderTop: cat.statements.length ? `1px solid ${C.hair}` : "none", background: "#fafafa" }}>
+                    <textarea rows={2} value={drafts[cat.id] || ""} placeholder="Write a statement…"
+                      onChange={(e) => setDrafts({ ...drafts, [cat.id]: e.target.value })}
+                      style={{ ...inputStyle, height: "auto", lineHeight: 1.5, resize: "vertical" }} />
+                    <div style={{ marginTop: 8 }}>
+                      <Btn size="sm" kind="solid" disabled={!(drafts[cat.id] || "").trim()} onClick={() => { act.guideAddStatement(cat.id, drafts[cat.id].trim()); setDrafts({ ...drafts, [cat.id]: "" }); }} icon={<Plus size={13} strokeWidth={2} />}>Add statement</Btn>
+                    </div>
+                  </div>
+                )}
+                {!isAdmin && cat.statements.length === 0 && (
+                  <div style={{ padding: "14px 16px", fontSize: 12.5, color: C.faint }}>Admin hasn't added anything here yet.</div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {isAdmin && (
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <Input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category, e.g. Dress code" />
+          <Btn onClick={() => { if (!newCat.trim()) return; act.guideAddCategory(newCat.trim()); setNewCat(""); }}>Add more</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- experience ranking */
+// Valorant-style competitive tiers, driven off total therapy hours. Ranked
+// ascending; a counsellor's tier is the highest one they've cleared.
+const EXPERIENCE_TIERS = [
+  { name: "Iron 1", minHours: 0, group: "Iron", from: "#6b7280", to: "#3f4653" },
+  { name: "Iron 2", minHours: 10, group: "Iron", from: "#6b7280", to: "#3f4653" },
+  { name: "Iron 3", minHours: 100, group: "Iron", from: "#6b7280", to: "#3f4653" },
+  { name: "Bronze 1", minHours: 350, group: "Bronze", from: "#b0723f", to: "#7a4e29" },
+  { name: "Bronze 2", minHours: 450, group: "Bronze", from: "#b0723f", to: "#7a4e29" },
+  { name: "Bronze 3", minHours: 600, group: "Bronze", from: "#b0723f", to: "#7a4e29" },
+  { name: "Silver 1", minHours: 750, group: "Silver", from: "#b9c2cc", to: "#7d8894" },
+  { name: "Silver 2", minHours: 900, group: "Silver", from: "#b9c2cc", to: "#7d8894" },
+  { name: "Silver 3", minHours: 1050, group: "Silver", from: "#b9c2cc", to: "#7d8894" },
+  { name: "Gold 1", minHours: 1250, group: "Gold", from: "#e6c15c", to: "#b8912a" },
+  { name: "Gold 2", minHours: 1400, group: "Gold", from: "#e6c15c", to: "#b8912a" },
+  { name: "Gold 3", minHours: 1600, group: "Gold", from: "#e6c15c", to: "#b8912a" },
+  { name: "Platinum 1", minHours: 1800, group: "Platinum", from: "#6fd6c9", to: "#399b8f" },
+  { name: "Platinum 2", minHours: 2050, group: "Platinum", from: "#6fd6c9", to: "#399b8f" },
+  { name: "Platinum 3", minHours: 2250, group: "Platinum", from: "#6fd6c9", to: "#399b8f" },
+  { name: "Diamond 1", minHours: 2500, group: "Diamond", from: "#b58cf0", to: "#7d4fc9" },
+  { name: "Diamond 2", minHours: 2750, group: "Diamond", from: "#b58cf0", to: "#7d4fc9" },
+  { name: "Diamond 3", minHours: 3000, group: "Diamond", from: "#b58cf0", to: "#7d4fc9" },
+  { name: "Ascendant 1", minHours: 3250, group: "Ascendant", from: "#5fd88a", to: "#1f9d57" },
+  { name: "Ascendant 2", minHours: 3500, group: "Ascendant", from: "#5fd88a", to: "#1f9d57" },
+  { name: "Ascendant 3", minHours: 3800, group: "Ascendant", from: "#5fd88a", to: "#1f9d57" },
+  { name: "Immortal 1", minHours: 4100, group: "Immortal", from: "#ff6b7a", to: "#c4243b" },
+  { name: "Immortal 2", minHours: 4400, group: "Immortal", from: "#ff6b7a", to: "#c4243b" },
+  { name: "Immortal 3", minHours: 4700, group: "Immortal", from: "#ff6b7a", to: "#c4243b" },
+  { name: "Radiant 1", minHours: 5000, group: "Radiant", from: "#fff2a8", to: "#f2b705" },
+  { name: "Radiant 2", minHours: 5250, group: "Radiant", from: "#fff2a8", to: "#f2b705" },
+  { name: "Radiant 3", minHours: 5500, group: "Radiant", from: "#fff2a8", to: "#f2b705" },
+];
+function experienceTier(hours) {
+  let tier = EXPERIENCE_TIERS[0];
+  for (const t of EXPERIENCE_TIERS) if (hours >= t.minHours) tier = t;
+  return tier;
+}
+function experienceTierProgress(hours) {
+  const idx = EXPERIENCE_TIERS.findIndex((t) => t === experienceTier(hours));
+  const tier = EXPERIENCE_TIERS[idx];
+  const nextTier = EXPERIENCE_TIERS[idx + 1] || null;
+  const pct = nextTier ? Math.max(0, Math.min(1, (hours - tier.minHours) / (nextTier.minHours - tier.minHours))) : 1;
+  return { tier, nextTier, pct };
+}
+function experienceStatsFor(data, counsellorId) {
+  const sessions = (data.sessions || []).filter((s) => s.counsellorId === counsellorId && s.endedAt);
+  const therapyHours = sessions.reduce((t, s) => t + (s.durationSec || 0), 0) / 3600;
+  const appts = data.appointments.filter((a) => a.counsellorId === counsellorId);
+  const followUps = appts.filter((a) => a.isFollowup).length;
+  const followUpRate = appts.length ? (followUps / appts.length) * 100 : 0;
+  const reviews = (data.reviews || []).filter((r) => r.counsellorId === counsellorId);
+  const fiveStarCount = reviews.filter((r) => r.rating === 5).length;
+  return { therapyHours, followUpRate, fiveStarCount };
+}
+// "Leave Rating" — average extra (LOP, beyond the paid quota) leaves taken
+// per month across a selected year. Only counts months that have actually
+// happened this year, so a part-way-through year isn't diluted by empty
+// future months.
+function leaveExtraStatsForYear(data, counsellorId, year) {
+  const curYear = new Date().getFullYear();
+  const lastMonth = year === curYear ? new Date().getMonth() + 1 : 12;
+  let totalExtra = 0;
+  for (let m = 1; m <= lastMonth; m++) totalExtra += lopLeaveCountInMonth(data, counsellorId, `${year}-${pad(m)}`);
+  return { avgExtra: lastMonth ? totalExtra / lastMonth : 0, totalExtra, monthsCounted: lastMonth };
+}
+// "Time Management" — punctuality against the counsellor's own shift,
+// reusing the same early/late comparison Attendance already uses.
+function timeManagementStatFor(data, counsellor) {
+  if (!counsellor || counsellor.workHoursEnabled === false || !counsellor.workStart || !counsellor.workEnd) return null;
+  const shiftStart = minutesFromHHMM(counsellor.workStart);
+  const shiftEnd = minutesFromHHMM(counsellor.workEnd);
+  const rows = (data.attendance || []).filter((a) => a.counsellorId === counsellor.id);
+  if (rows.length === 0) return { onTimeRate: null, totalDays: 0 };
+  const onTime = rows.filter((a) => {
+    const lateIn = minutesOfDay(a.inAt) > shiftStart;
+    const lateOut = a.outAt ? minutesOfDay(a.outAt) > shiftEnd : false;
+    return !lateIn && !lateOut;
+  }).length;
+  return { onTimeRate: (onTime / rows.length) * 100, totalDays: rows.length };
+}
+
+function TierProgressRing({ size, tier, nextTier, pct }) {
+  const strokeWidth = 9;
+  const r = (size - strokeWidth) / 2;
+  const cx = size / 2, cy = size / 2;
+  const startAngle = 135, sweep = 270;
+  const endAngle = startAngle + sweep;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const pointAt = (deg) => ({ x: cx + r * Math.cos(toRad(deg)), y: cy + r * Math.sin(toRad(deg)) });
+  const start = pointAt(startAngle);
+  const trackEnd = pointAt(endAngle);
+  const progressSweep = sweep * pct;
+  const progressEnd = pointAt(startAngle + progressSweep);
+  const gradId = `tierRing-${tier.name.replace(/\s+/g, "")}`;
+
+  return (
+    <>
+      <svg width={size} height={size} style={{ position: "absolute", top: 0, left: 0, overflow: "visible" }}>
+        <defs>
+          <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={tier.from} />
+            <stop offset="100%" stopColor={tier.to} />
+          </linearGradient>
+        </defs>
+        <path d={`M ${start.x} ${start.y} A ${r} ${r} 0 1 1 ${trackEnd.x} ${trackEnd.y}`}
+          fill="none" stroke="#eef0f3" strokeWidth={strokeWidth} strokeLinecap="round" />
+        {pct > 0 && (
+          <path d={`M ${start.x} ${start.y} A ${r} ${r} 0 ${progressSweep > 180 ? 1 : 0} 1 ${progressEnd.x} ${progressEnd.y}`}
+            fill="none" stroke={`url(#${gradId})`} strokeWidth={strokeWidth} strokeLinecap="round" />
+        )}
+      </svg>
+      {pct > 0.02 && (
+        <div style={{
+          position: "absolute", left: progressEnd.x, top: progressEnd.y, transform: "translate(-50%,-50%)",
+          width: 14, height: 14, borderRadius: "50%", background: "#fff",
+          border: `2.5px solid ${tier.to}`, boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+        }} />
+      )}
+      {nextTier && (
+        <>
+          <div style={{
+            position: "absolute", left: trackEnd.x, top: trackEnd.y, transform: "translate(-50%,-50%)",
+            width: 20, height: 20, borderRadius: "50%",
+            background: `linear-gradient(135deg, ${nextTier.from}, ${nextTier.to})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: "2px solid #fff", boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+          }}>
+            <Award size={10} color="#fff" strokeWidth={2} />
+          </div>
+          <div style={{
+            position: "absolute", left: trackEnd.x, top: trackEnd.y + 16, transform: "translate(-50%,0)",
+            fontSize: 9.5, fontWeight: 700, color: nextTier.to, whiteSpace: "nowrap",
+            background: "#fff", borderRadius: 999, padding: "1px 6px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          }}>{nextTier.name}</div>
+        </>
+      )}
+    </>
+  );
+}
+function TierBadge({ tier, nextTier, pct }) {
+  const ringSize = 132;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <div style={{ position: "relative", width: ringSize, height: ringSize, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <TierProgressRing size={ringSize} tier={tier} nextTier={nextTier} pct={pct} />
+        <div style={{
+          width: 78, height: 78, borderRadius: 20, transform: "rotate(45deg)",
+          background: `linear-gradient(135deg, ${tier.from}, ${tier.to})`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: `0 8px 18px ${tier.to}55`,
+        }}>
+          <div style={{ transform: "rotate(-45deg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Award size={34} color="#fff" strokeWidth={1.7} />
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 14.5, fontWeight: 800, letterSpacing: 0.3, color: "#1c1c1e" }}>{tier.name}</div>
+    </div>
+  );
+}
+
+function TherapyHoursSheet({ open, onClose, counsellor, hours }) {
+  const tier = experienceTier(hours);
+  const levels = EXPERIENCE_TIERS.filter((t) => t.group === tier.group);
+  const lastIdx = EXPERIENCE_TIERS.indexOf(levels[levels.length - 1]);
+  const endTier = EXPERIENCE_TIERS[lastIdx + 1] || null;
+  const stops = [...levels.map((t) => t.minHours), endTier ? endTier.minHours : levels[levels.length - 1].minHours + 400];
+  let seg = 0;
+  for (let k = 0; k < levels.length; k++) if (hours >= stops[k]) seg = k;
+  const segSpan = Math.max(1, stops[seg + 1] - stops[seg]);
+  const within = Math.max(0, Math.min(1, (hours - stops[seg]) / segSpan));
+  const frac = hours >= stops[levels.length] ? 1 : (seg + within) / levels.length;
+  const nodes = [...levels.map((t, i) => ({ t, at: i / levels.length, hrs: stops[i] })), ...(endTier ? [{ t: endTier, at: 1, hrs: endTier.minHours, end: true }] : [])];
+  const nextTier = EXPERIENCE_TIERS[EXPERIENCE_TIERS.indexOf(tier) + 1] || null;
+  const toGo = nextTier ? Math.max(0, nextTier.minHours - hours) : 0;
+  return (
+    <Sheet open={open} onClose={onClose} title="Therapy hours" wide>
+      <div style={{ borderRadius: 20, padding: "16px 12px 12px", color: "#fff", background: `linear-gradient(160deg, ${tier.to} 0%, #1d1830 100%)`, overflow: "hidden" }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.7 }}>{tier.group} rank</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 4 }}>
+          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "0.01em" }}>{tier.name.toUpperCase()}</div>
+          <div style={{ fontSize: 13, opacity: 0.85 }}>{hours.toFixed(1)}h logged</div>
+        </div>
+        <div style={{ position: "relative", margin: "12px 24px 0", height: 92 }}>
+          <div style={{ position: "absolute", left: 0, right: 0, top: 44, height: 8, display: "flex", gap: 3 }}>
+            {levels.map((t, i) => {
+              const fill = Math.max(0, Math.min(1, frac * levels.length - i));
+              return (
+                <div key={t.name} style={{ flex: 1, background: "rgba(255,255,255,0.16)", borderRadius: i === 0 ? "999px 3px 3px 999px" : i === levels.length - 1 ? "3px 999px 999px 3px" : 3, overflow: "hidden" }}>
+                  <div style={{ width: `${fill * 100}%`, height: "100%", background: `linear-gradient(90deg, ${tier.from}, #fff)` }} />
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ position: "absolute", left: `${frac * 100}%`, top: -2, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ borderRadius: 999, padding: 2.5, background: "#fff", boxShadow: "0 4px 14px rgba(0,0,0,0.35)" }}>
+              <Avatar name={counsellor.name} size={28} />
+            </div>
+            <div style={{ width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "7px solid #fff", marginTop: -1 }} />
+          </div>
+          {nodes.map((n) => (
+            <div key={n.t.name} style={{ position: "absolute", left: `${n.at * 100}%`, top: 38, transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", width: 78 }}>
+              <div style={{ width: 20, height: 20, borderRadius: 6, transform: "rotate(45deg)", background: `linear-gradient(135deg, ${n.t.from}, ${n.t.to})`, border: "2px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", opacity: hours >= n.hrs ? 1 : 0.55, boxShadow: hours >= n.hrs ? `0 0 12px ${n.t.from}` : "none" }}>
+                <div style={{ transform: "rotate(-45deg)", display: "flex" }}>{hours >= n.hrs ? <Check size={12} color="#fff" strokeWidth={3} /> : <Award size={12} color="#fff" strokeWidth={2} />}</div>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, marginTop: 11, whiteSpace: "nowrap", opacity: n.end ? 0.7 : 1 }}>{n.t.name}</div>
+              <div style={{ fontSize: 10.5, opacity: 0.65, marginTop: 1 }}>{n.hrs}h</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginTop: 16, fontSize: 13.5, color: C.mid, lineHeight: 1.6, textAlign: "center" }}>
+        {nextTier ? <><strong style={{ color: C.ink }}>{toGo.toFixed(1)}h</strong> to reach <strong style={{ color: C.ink }}>{nextTier.name}</strong>.</> : "You're at the top — Radiant 3."}
+      </div>
+      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint, textAlign: "center" }}>Hours come from ended sessions.</div>
+    </Sheet>
+  );
+}
+
+function FollowUpTrendSheet({ open, onClose, data, counsellorId }) {
+  const [range, setRange] = useState("Months");
+  const appts = data.appointments.filter((a) => a.counsellorId === counsellorId);
+  const now = new Date();
+  const buckets = [];
+  if (range === "Days") {
+    for (let i = 13; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); buckets.push({ key: ymd(d), label: `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`, full: shortDate(ymd(d)), match: (a) => a.date === ymd(d) }); }
+  } else if (range === "Months") {
+    for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); const k = ymd(d).slice(0, 7); buckets.push({ key: k, label: `${MONTHS[d.getMonth()].slice(0, 3)} ${String(d.getFullYear()).slice(2)}`, full: `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`, match: (a) => a.date.slice(0, 7) === k }); }
+  } else {
+    for (let i = 4; i >= 0; i--) { const y = now.getFullYear() - i; buckets.push({ key: String(y), label: String(y), match: (a) => a.date.slice(0, 4) === String(y) }); }
+  }
+  const rows = buckets.map((b) => {
+    const list = appts.filter(b.match);
+    const f = list.filter((a) => a.isFollowup).length;
+    return { ...b, total: list.length, f, rate: list.length ? (f / list.length) * 100 : null };
+  });
+  const totalAll = rows.reduce((t, r) => t + r.total, 0), fAll = rows.reduce((t, r) => t + r.f, 0);
+  const W = 320, H = 200, padL = 34, padR = 22, padT = 20, padB = 46;
+  const cw = W - padL - padR, ch = H - padT - padB;
+  const xAt = (i) => padL + (rows.length === 1 ? cw / 2 : (i / (rows.length - 1)) * cw);
+  const yAt = (v) => padT + ch - (v / 100) * ch;
+  const pts = rows.map((r, i) => (r.rate == null ? null : { x: xAt(i), y: yAt(r.rate), r }));
+  const path = pts.reduce((d, p, i) => (p ? d + `${pts[i - 1] ? "L" : "M"}${p.x},${p.y} ` : d), "");
+  const best = rows.filter((r) => r.rate != null).sort((a, b) => b.rate - a.rate)[0];
+  return (
+    <Sheet open={open} onClose={onClose} title="Follow-up rate" wide>
+      <div style={{ display: "flex", gap: 6, background: C.chip, borderRadius: 999, padding: 4, marginBottom: 16 }}>
+        {["Days", "Months", "Years"].map((t) => (
+          <button key={t} onClick={() => setRange(t)} style={{ flex: 1, padding: "8px 0", borderRadius: 999, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: range === t ? "#111" : "transparent", color: range === t ? "#fff" : C.mid }}>{t}</button>
+        ))}
+      </div>
+      <div style={{ borderRadius: 18, border: "2px solid #4a4a4f", background: "#fff", padding: "14px 10px 8px" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
+          {[0, 20, 40, 60, 80, 100].map((g) => (
+            <g key={g}><line x1={padL} x2={W - padR} y1={yAt(g)} y2={yAt(g)} stroke="#ececf0" strokeWidth="1" /><text x={padL - 7} y={yAt(g) + 3.5} fontSize="9.5" textAnchor="end" fill="#8a8a92">{g}</text></g>
+          ))}
+          {rows.map((r, i) => <line key={r.key} x1={xAt(i)} x2={xAt(i)} y1={padT} y2={padT + ch} stroke="#f1f1f4" strokeWidth="1" />)}
+          <line x1={padL} x2={padL} y1={padT + ch} y2={6} stroke="#d9d9df" strokeWidth="3" strokeLinecap="round" />
+          <polygon points={`${padL - 6},12 ${padL + 6},12 ${padL},0`} fill="#d9d9df" />
+          <line x1={padL} x2={W - 8} y1={padT + ch} y2={padT + ch} stroke="#d9d9df" strokeWidth="3" strokeLinecap="round" />
+          <polygon points={`${W - 14},${padT + ch - 6} ${W - 14},${padT + ch + 6} ${W},${padT + ch}`} fill="#d9d9df" />
+          <defs>
+            <linearGradient id="fuLine2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#7c5ce0" /><stop offset="100%" stopColor="#c07ad8" /></linearGradient>
+            <linearGradient id="fuFill2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9b7cf0" stopOpacity="0.28" /><stop offset="100%" stopColor="#9b7cf0" stopOpacity="0" /></linearGradient>
+          </defs>
+          {path && <path d={path} fill="none" stroke="url(#fuLine2)" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />}
+          {pts.map((p) => p && <circle key={p.r.key} cx={p.x} cy={p.y} r="4.6" fill="#fff" stroke="#8b5fe0" strokeWidth="3" />)}
+          {rows.map((r, i) => (
+            <text key={r.key} transform={`translate(${xAt(i) + 3},${padT + ch + 12}) rotate(-45)`} fontSize="9" textAnchor="end" fill="#8a8a92">{r.label}</text>
+          ))}
+        </svg>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        <div style={{ flex: 1, borderRadius: 16, background: C.chip, padding: "12px 14px" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{totalAll ? Math.round((fAll / totalAll) * 100) : 0}%</div>
+          <div style={{ fontSize: 11.5, color: C.soft, marginTop: 2 }}>{fAll} of {totalAll} bookings in this view</div>
+        </div>
+        <div style={{ flex: 1, borderRadius: 16, background: C.chip, padding: "12px 14px" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{best ? `${Math.round(best.rate)}%` : "—"}</div>
+          <div style={{ fontSize: 11.5, color: C.soft, marginTop: 2 }}>{best ? `Best: ${best.full || best.key}` : "No bookings yet"}</div>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// "Highest of the Month" — whoever has the most 5-star Google reviews dated
+// in that month across the team (needs at least one; a tie shares the title).
+function highestOfMonth(data, monthKey) {
+  const counts = {};
+  (data.reviews || []).forEach((r) => {
+    if (r.counsellorId && r.rating === 5 && r.date && r.date.slice(0, 7) === monthKey) counts[r.counsellorId] = (counts[r.counsellorId] || 0) + 1;
+  });
+  const top = Math.max(0, ...Object.values(counts));
+  return { top, ids: top > 0 ? Object.keys(counts).filter((id) => counts[id] === top) : [] };
+}
+
+function ReviewFrequencySheet({ open, onClose, data, counsellorId }) {
+  const [sel, setSel] = useState(ymd(new Date()).slice(0, 7));
+  const reviews = (data.reviews || []).filter((r) => r.counsellorId === counsellorId && r.date);
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const k = ymd(d).slice(0, 7);
+    const list = reviews.filter((r) => r.date.slice(0, 7) === k);
+    months.push({ k, full: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, won: highestOfMonth(data, k).ids.includes(counsellorId), label: MONTHS[d.getMonth()].slice(0, 1), five: list.filter((r) => r.rating === 5).length, other: list.filter((r) => r.rating !== 5).length });
+  }
+  const maxM = Math.max(1, ...months.map((m) => m.five + m.other));
+  const wonMonths = months.filter((m) => m.won);
+  const wonThisMonth = !!months[months.length - 1].won;
+  const sorted = [...reviews].map((r) => r.date).sort();
+  let avgGap = null;
+  if (sorted.length > 1) avgGap = Math.round((fromYmd(sorted[sorted.length - 1]) - fromYmd(sorted[0])) / 86400000 / (sorted.length - 1));
+  const last30 = reviews.filter((r) => (now - fromYmd(r.date)) / 86400000 <= 30).length;
+  const counts = {};
+  reviews.forEach((r) => { counts[r.date] = counts[r.date] || { n: 0, five: 0 }; counts[r.date].n += 1; if (r.rating === 5) counts[r.date].five += 1; });
+  const curKey = ymd(new Date()).slice(0, 7);
+  const [selY, selM] = sel.split("-").map(Number);
+  const selFirst = new Date(selY, selM - 1, 1);
+  const daysInSel = new Date(selY, selM, 0).getDate();
+  const lead = (selFirst.getDay() + 6) % 7;
+  const calCells = [...Array(lead).fill(null), ...Array.from({ length: daysInSel }, (_, i) => { const key = `${sel}-${String(i + 1).padStart(2, "0")}`; return { day: i + 1, key, n: (counts[key] || {}).n || 0, five: (counts[key] || {}).five || 0 }; })];
+  const selTotal = calCells.reduce((t, c) => t + (c ? c.n : 0), 0);
+  const selFive = calCells.reduce((t, c) => t + (c ? c.five : 0), 0);
+  const shiftSel = (delta) => { const d = new Date(selY, selM - 1 + delta, 1); const k = ymd(d).slice(0, 7); if (k <= curKey) setSel(k); };
+  const monthTotals = {};
+  reviews.forEach((r) => { const k = r.date.slice(0, 7); monthTotals[k] = monthTotals[k] || { n: 0, five: 0 }; monthTotals[k].n += 1; if (r.rating === 5) monthTotals[k].five += 1; });
+  const monthKeys = Object.keys(monthTotals).sort();
+  const labelOf = (k) => { const [y, m] = k.split("-").map(Number); return `${MONTHS[m - 1].slice(0, 3)} ${y}`; };
+  const bestMonth = monthKeys.reduce((b, k) => (!b || monthTotals[k].n > monthTotals[b].n ? k : b), null);
+  const bestFiveMonth = monthKeys.reduce((b, k) => (!b || monthTotals[k].five > monthTotals[b].five ? k : b), null);
+  let bestStreak = 0, run = 0, prevIdx = null;
+  monthKeys.forEach((k) => { const [y, m] = k.split("-").map(Number); const idx = y * 12 + m; run = prevIdx != null && idx === prevIdx + 1 ? run + 1 : 1; prevIdx = idx; bestStreak = Math.max(bestStreak, run); });
+  const bestDayKey = Object.keys(counts).reduce((b, k) => (!b || counts[k].n > counts[b].n ? k : b), null);
+  const allWins = [...new Set((data.reviews || []).filter((r) => r.date).map((r) => r.date.slice(0, 7)))].filter((k) => highestOfMonth(data, k).ids.includes(counsellorId)).length;
+  const heat = (n) => (n === 0 ? "#f4f2fb" : n === 1 ? "#ddd3fa" : n === 2 ? "#b9a6f2" : "#8b5fe0");
+  return (
+    <Sheet open={open} onClose={onClose} title="Google reviews" wide>
+      {wonMonths.length > 0 && (
+        <div style={{ borderRadius: 16, padding: "12px 14px", marginBottom: 14, color: "#fff", background: "linear-gradient(135deg,#f0b199,#c589cf 55%,#8b7fe8)", display: "flex", alignItems: "center", gap: 12 }}>
+          <Award size={22} color="#fff" strokeWidth={1.8} />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>{wonThisMonth ? "Highest of the Month" : `Highest of the Month · ${wonMonths[wonMonths.length - 1].full}`}</div>
+            <div style={{ fontSize: 11.5, opacity: 0.92, marginTop: 1 }}>{wonThisMonth ? "Most 5★ Google reviews on the team this month." : "Most recent win."} Won {wonMonths.length} time{wonMonths.length > 1 ? "s" : ""} in the last 12 months.</div>
+          </div>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        {[[reviews.length, "all reviews"], [last30, "last 30 days"], [avgGap == null ? "—" : `${avgGap}d`, "avg gap between"]].map(([v, l]) => (
+          <div key={l} style={{ flex: 1, borderRadius: 16, background: C.chip, padding: "12px 10px", textAlign: "center" }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{v}</div>
+            <div style={{ fontSize: 11, color: C.soft, marginTop: 2 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderRadius: 20, border: `1px solid ${C.line}`, padding: "14px 14px 10px" }}>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: C.soft, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Reviews per month</div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 110 }}>
+          {months.map((m) => {
+            const tot = m.five + m.other;
+            return (
+              <div key={m.k} onClick={() => setSel(m.k)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", cursor: "pointer", opacity: sel === m.k ? 1 : 0.6 }}>
+                {m.won && <Award size={11} color="#c589cf" strokeWidth={2.2} style={{ marginBottom: 2 }} />}
+                {tot > 0 && <div style={{ fontSize: 9.5, color: C.soft, marginBottom: 3 }}>{tot}</div>}
+                <div style={{ width: "100%", maxWidth: 18, height: `${(tot / maxM) * 86}%`, minHeight: tot ? 4 : 2, borderRadius: 6, overflow: "hidden", display: "flex", flexDirection: "column", background: tot ? "transparent" : "#f1f1f5" }}>
+                  <div style={{ flex: m.other, background: "#d6d6de" }} />
+                  <div style={{ flex: m.five, background: "linear-gradient(180deg,#f0b199,#c589cf 55%,#8b7fe8)" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          {months.map((m) => <div key={m.k} style={{ flex: 1, textAlign: "center", fontSize: 9.5, color: "#9a9aa1" }}>{m.label}</div>)}
+        </div>
+        <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: C.soft }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "linear-gradient(135deg,#f0b199,#8b7fe8)" }} />5★</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "#d6d6de" }} />Other ratings</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Award size={11} color="#c589cf" strokeWidth={2.2} />Highest of the Month</span>
+        </div>
+      </div>
+      <div style={{ borderRadius: 20, border: `1px solid ${C.line}`, padding: "14px 14px 14px", marginTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <button onClick={() => shiftSel(-1)} style={{ width: 34, height: 34, borderRadius: 999, border: `1px solid ${C.line}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronLeft size={16} color={C.mid} /></button>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{MONTHS[selM - 1]} {selY}</div>
+            <div style={{ fontSize: 11.5, color: C.soft, marginTop: 1 }}>{selTotal} review{selTotal === 1 ? "" : "s"} · {selFive} five-star</div>
+          </div>
+          <button onClick={() => shiftSel(1)} disabled={sel >= curKey} style={{ width: 34, height: 34, borderRadius: 999, border: `1px solid ${C.line}`, background: "#fff", cursor: sel >= curKey ? "default" : "pointer", opacity: sel >= curKey ? 0.35 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronRight size={16} color={C.mid} /></button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5, marginBottom: 5 }}>
+          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 10, color: "#9a9aa1" }}>{d}</div>)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5 }}>
+          {calCells.map((c, i) => c ? (
+            <div key={c.key} style={{ aspectRatio: "1 / 1", borderRadius: 9, background: heat(c.n), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, color: c.n >= 2 ? "#fff" : c.n ? "#5b3fb5" : "#a9a6b8" }}>
+              <span style={{ fontSize: 11.5, fontWeight: c.n ? 700 : 500 }}>{c.day}</span>
+              {c.n > 0 && <span style={{ fontSize: 9, fontWeight: 700, opacity: 0.9 }}>{c.n}★</span>}
+            </div>
+          ) : <div key={"b" + i} />)}
+        </div>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 10, textAlign: "center" }}>Coloured days had reviews — the small ★ number is how many. Use the arrows to go month to month.</div>
+      </div>
+      <div style={{ borderRadius: 20, padding: "16px 16px 6px", marginTop: 14, background: "linear-gradient(160deg,#f6f2ff,#fff4ef)", border: "1px solid #ebe3fb" }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#6c4bc4", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Your best figures</div>
+        {[
+          ["Best month", bestMonth ? `${monthTotals[bestMonth].n} reviews · ${labelOf(bestMonth)}` : "—"],
+          ["Most 5★ in a month", bestFiveMonth && monthTotals[bestFiveMonth].five ? `${monthTotals[bestFiveMonth].five} · ${labelOf(bestFiveMonth)}` : "—"],
+          ["Best single day", bestDayKey ? `${counts[bestDayKey].n} reviews · ${shortDate(bestDayKey)}` : "—"],
+          ["Longest streak", bestStreak ? `${bestStreak} month${bestStreak > 1 ? "s" : ""} in a row` : "—"],
+          ["Highest of the Month", `${allWins} time${allWins === 1 ? "" : "s"}`],
+        ].map(([l, v]) => (
+          <div key={l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #ebe3fb" }}>
+            <span style={{ fontSize: 13, color: C.mid }}>{l}</span>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
+function ExperienceRankingScreen({ data, user }) {
+  const isAdmin = user.role === "admin";
+  const [viewCounsellorId, setViewCounsellorId] = useState(isAdmin ? (data.counsellors[0]?.id || "") : user.counsellorId);
+  const counsellor = data.counsellors.find((c) => c.id === viewCounsellorId) ||
+    (isAdmin ? null : { id: user.counsellorId, name: user.name, role: "" });
+
+  const nowYear = new Date().getFullYear();
+  const [riseCard, setRiseCard] = useState(null);
+  const [leaveYear, setLeaveYear] = useState(nowYear);
+  const leaveYearScrollRef = useRef(null);
+
+  useEffect(() => {
+    const el = leaveYearScrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, []);
+
+  if (!counsellor) return <Empty text="No counsellors yet." />;
+
+  const stats = experienceStatsFor(data, counsellor.id);
+  const { tier, nextTier, pct } = experienceTierProgress(stats.therapyHours);
+  const leaveStats = leaveExtraStatsForYear(data, counsellor.id, leaveYear);
+  const timeStats = timeManagementStatFor(data, counsellor);
+  const leaveYears = Array.from({ length: 6 }, (_, i) => nowYear - 5 + i);
+
+  return (
+    <div style={{ padding: "8px 16px 28px", background: "#fff", minHeight: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Avatar name={counsellor.name} size={44} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: "#0a0a0a" }}>{counsellor.name}</div>
+          {!!counsellor.role && (
+            <div style={{ fontSize: 12.5, color: C.soft, marginTop: 1 }}>{counsellor.role}</div>
+          )}
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 10 }}>
+          <select value={viewCounsellorId} onChange={(e) => setViewCounsellorId(e.target.value)} style={{
+            fontSize: 12, color: C.mid, border: `1px solid ${C.line}`, borderRadius: 999, padding: "4px 10px",
+            background: "#fff", fontFamily: FONT,
+          }}>
+            {data.counsellors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 28, marginBottom: 8 }}>
+        <TierBadge tier={tier} nextTier={nextTier} pct={pct} />
+      </div>
+
+      <div style={{
+        marginTop: 28, borderRadius: 999,
+        background: "rgba(245,245,247,0.65)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(255,255,255,0.6)",
+        display: "flex", alignItems: "stretch", padding: "16px 8px",
+      }}>
+        <button onClick={() => setRiseCard("hours")} style={{ flex: 1, textAlign: "center", padding: "0 8px", background: "none", border: "none", cursor: "pointer", fontFamily: FONT }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: "#0a0a0a" }}>{stats.therapyHours.toFixed(1)}h</div>
+          <div style={{ fontSize: 11, color: C.soft, marginTop: 3 }}>Therapy hours</div>
+        </button>
+        <div style={{ width: 1, background: "rgba(0,0,0,0.08)" }} />
+        <button onClick={() => setRiseCard("followups")} style={{ flex: 1, textAlign: "center", padding: "0 8px", background: "none", border: "none", cursor: "pointer", fontFamily: FONT }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: "#0a0a0a" }}>{Math.round(stats.followUpRate)}%</div>
+          <div style={{ fontSize: 11, color: C.soft, marginTop: 3 }}>Follow-up rate</div>
+        </button>
+        <div style={{ width: 1, background: "rgba(0,0,0,0.08)" }} />
+        <button onClick={() => setRiseCard("reviews")} style={{ flex: 1, textAlign: "center", padding: "0 8px", background: "none", border: "none", cursor: "pointer", fontFamily: FONT }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: "#0a0a0a" }}>{stats.fiveStarCount}</div>
+          <div style={{ fontSize: 11, color: C.soft, marginTop: 3 }}>5★ reviews</div>
+        </button>
+      </div>
+      {highestOfMonth(data, ymd(new Date()).slice(0, 7)).ids.includes(counsellor.id) && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+          <button onClick={() => setRiseCard("reviews")} style={{ display: "flex", alignItems: "center", gap: 7, border: "none", cursor: "pointer", borderRadius: 999, padding: "7px 14px", color: "#fff", fontSize: 12.5, fontWeight: 700, background: "linear-gradient(135deg,#f0b199,#c589cf 55%,#8b7fe8)", fontFamily: FONT }}>
+            <Award size={14} color="#fff" strokeWidth={2} />Highest of the Month
+          </button>
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: C.faint, textAlign: "center", marginTop: 8 }}>Tap a number to see more</div>
+      <TherapyHoursSheet open={riseCard === "hours"} onClose={() => setRiseCard(null)} counsellor={counsellor} hours={stats.therapyHours} />
+      <FollowUpTrendSheet open={riseCard === "followups"} onClose={() => setRiseCard(null)} data={data} counsellorId={counsellor.id} />
+      <ReviewFrequencySheet open={riseCard === "reviews"} onClose={() => setRiseCard(null)} data={data} counsellorId={counsellor.id} />
+
+      <div style={{ marginTop: 34 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: C.soft, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
+          Leave Rating
+        </div>
+        <div ref={leaveYearScrollRef} style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none" }}>
+          {leaveYears.map((y) => (
+            <button key={y} onClick={() => setLeaveYear(y)} style={{
+              flexShrink: 0, background: "transparent", border: "none", cursor: "pointer", padding: "2px 0",
+              fontFamily: FONT, fontSize: y === leaveYear ? 15 : 13,
+              fontWeight: y === leaveYear ? 800 : 500,
+              color: y === leaveYear ? "#0a0a0a" : C.faint,
+              borderBottom: y === leaveYear ? "2px solid #0a0a0a" : "2px solid transparent",
+            }}>{y}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>
+          Average extra leaves: <span style={{ color: C.mid, fontWeight: 600 }}>{leaveStats.avgExtra.toFixed(1)}/mo</span> in {leaveYear}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 24 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: C.soft, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
+          Time Management
+        </div>
+        <div style={{ fontSize: 13, color: C.soft }}>
+          {timeStats == null
+            ? "No working hours set for this counsellor."
+            : timeStats.totalDays === 0
+            ? "No attendance recorded yet."
+            : <>On-time rate: <span style={{ color: C.mid, fontWeight: 600 }}>{Math.round(timeStats.onTimeRate)}%</span> of {timeStats.totalDays} attendance days</>}
+        </div>
       </div>
     </div>
   );
@@ -9151,6 +9991,40 @@ export default function App() {
       setData({ ...data, messages: [...(data.messages || []), msg] });
     },
 
+    guideAddCategory: (name) => {
+      const g = guideOf(data);
+      setData({ ...data, guide: { ...g, categories: [...g.categories, { id: uid("gc"), name, statements: [] }] } });
+    },
+    guideRenameCategory: (id, name) => {
+      const g = guideOf(data);
+      setData({ ...data, guide: { ...g, categories: g.categories.map((c) => (c.id === id ? { ...c, name } : c)) } });
+    },
+    guideDeleteCategory: (id) => {
+      const g = guideOf(data);
+      setData({ ...data, guide: { ...g, categories: g.categories.filter((c) => c.id !== id) } });
+    },
+    guideAddStatement: (catId, text) => {
+      const g = guideOf(data);
+      setData({ ...data, guide: { ...g, categories: g.categories.map((c) => (c.id === catId ? { ...c, statements: [...c.statements, { id: uid("gs"), text }] } : c)) } });
+    },
+    guideEditStatement: (catId, stId, text) => {
+      const g = guideOf(data);
+      // An edited statement needs a fresh read — clear everyone's tick on it.
+      const acks = {};
+      Object.keys(g.acks).forEach((k) => { const m = { ...g.acks[k] }; delete m[stId]; acks[k] = m; });
+      setData({ ...data, guide: { acks, categories: g.categories.map((c) => (c.id === catId ? { ...c, statements: c.statements.map((x) => (x.id === stId ? { ...x, text } : x)) } : c)) } });
+    },
+    guideDeleteStatement: (catId, stId) => {
+      const g = guideOf(data);
+      setData({ ...data, guide: { ...g, categories: g.categories.map((c) => (c.id === catId ? { ...c, statements: c.statements.filter((x) => x.id !== stId) } : c)) } });
+    },
+    guideTick: (personId, stId) => {
+      const g = guideOf(data);
+      const mine = { ...(g.acks[personId] || {}) };
+      if (mine[stId]) delete mine[stId]; else mine[stId] = Date.now();
+      setData({ ...data, guide: { ...g, acks: { ...g.acks, [personId]: mine } } });
+    },
+
   }), [data, user]);
 
   if (!ready) {
@@ -9207,7 +10081,11 @@ export default function App() {
     : (missedCheckInCounsellorIds.has(user.counsellorId) ? 1 : 0);
   const nuLancerStaffingAlert = user.role === "resource" && user.isNuLancer && staffingStatusForDate(data, todayKey) ? 1 : 0;
   const unread = myNotifs.filter((n) => !n.read).length + pendingFollowUpCount + missedCheckInCount + nuLancerStaffingAlert;
-  const canAccess = (key) => user.role === "admin" || !myCounsellorForFollowUp || myCounsellorForFollowUp.permissions?.[key] !== false;
+  // Research and Analysis is opt-in (off unless Admin explicitly grants it)
+  // since it surfaces cross-client business data, not just a counsellor's
+  // own workflow \u2014 everything else here stays opt-out.
+  const canAccess = (key) => user.role === "admin" || !myCounsellorForFollowUp
+    || (key === "research" ? myCounsellorForFollowUp.permissions?.research === true : myCounsellorForFollowUp.permissions?.[key] !== false);
 
   const subTitles = {
     counsellor: "Counsellor", client: "Client", counsellors: "Nurora Roster\u2019s",
@@ -9215,14 +10093,15 @@ export default function App() {
     settings: "Settings", myprofile: "My schedule", interestBooked: "Interest & Booked",
     nulancers: "NuLancers", salary: "Salary", mysummary: "My Summary", attendance: "Attendance",
     nubills: "Nubills", personas: "Persona", bric: "BRIC", reviews: "Google Reviews", followups: "Follow-up & Commitments",
-    benefits: "Resource Special Benefits",
+    benefits: "Resource Special Benefits", research: "Research and Analysis", guide: "Nurora Process and Guide",
+    experience: "My Nurora Experience Ranking",
   };
 
   let body, title;
   if (sub) {
     title = subTitles[sub.screen] || "";
     const permissionKeyForScreen = { leaves: "weekoffs" };
-    const screenNeedsCheck = sub.screen !== "myprofile" && sub.screen !== "benefits";
+    const screenNeedsCheck = sub.screen !== "myprofile" && sub.screen !== "benefits" && sub.screen !== "guide" && sub.screen !== "experience";
     if (screenNeedsCheck && !canAccess(permissionKeyForScreen[sub.screen] || sub.screen)) {
       body = (
         <div style={{ padding: "40px 20px", textAlign: "center" }}>
@@ -9247,6 +10126,9 @@ export default function App() {
     else if (sub.screen === "reviews") body = <GoogleReviewsScreen data={data} act={act} user={user} />;
     else if (sub.screen === "followups") body = <FollowUpCommitmentsScreen data={data} act={act} user={user} />;
     else if (sub.screen === "benefits") body = <ResourceBenefitsScreen data={data} act={act} user={user} />;
+    else if (sub.screen === "research") body = <ResearchScreen data={data} />;
+    else if (sub.screen === "guide") body = <GuideScreen data={data} act={act} user={user} />;
+    else if (sub.screen === "experience") body = <ExperienceRankingScreen data={data} user={user} />;
     else if (sub.screen === "settings") body = <SettingsScreen data={data} act={act} />;
   } else {
     title = TABS.find((t) => t[0] === tab)[1];
@@ -9584,6 +10466,20 @@ export default function App() {
                 <BarChart3 size={17} strokeWidth={1.4} color={C.mid} />My Summary
               </button>
             )}
+            {user.role !== "admin" && canAccess("research") && (
+              <button onClick={() => { setSub({ screen: "research" }); setDrawer(false); }}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px", borderRadius: 12, fontSize: 14.5, color: C.ink, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                <Search size={17} strokeWidth={1.4} color={C.mid} />Research and Analysis
+              </button>
+            )}
+            <button onClick={() => { setSub({ screen: "guide" }); setDrawer(false); }}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px", borderRadius: 12, fontSize: 14.5, color: C.ink, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+              <FileCheck size={17} strokeWidth={1.4} color={C.mid} />Nurora Process and Guide
+            </button>
+            <button onClick={() => { setSub({ screen: "experience" }); setDrawer(false); }}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px", borderRadius: 12, fontSize: 14.5, color: C.ink, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+              <Award size={17} strokeWidth={1.4} color={C.mid} />My Nurora Experience Ranking
+            </button>
             <button onClick={() => setMoreExpanded(!moreExpanded)}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px", borderRadius: 12, fontSize: 14.5, color: C.ink, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
               <MoreHorizontal size={17} strokeWidth={1.4} color={C.mid} />
@@ -9592,7 +10488,7 @@ export default function App() {
             </button>
             {moreExpanded && (
               <div style={{ paddingLeft: 8 }}>
-                {user.role === "admin" && [["counsellors", "Nurora Roster\u2019s", Users], ["nulancers", "NuLancers", Users], ["interestBooked", "Interest & Booked", FileText], ["reports", "Reports", BarChart3], ["settings", "Settings", SettingsIcon]].map(([k, label, Icon]) => (
+                {user.role === "admin" && [["counsellors", "Nurora Roster\u2019s", Users], ["nulancers", "NuLancers", Users], ["interestBooked", "Interest & Booked", FileText], ["reports", "Reports", BarChart3], ["research", "Research and Analysis", Search], ["settings", "Settings", SettingsIcon]].map(([k, label, Icon]) => (
                   <button key={k} onClick={() => { setSub({ screen: k }); setDrawer(false); }}
                     style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px", borderRadius: 12, fontSize: 14.5, color: C.ink, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
                     <Icon size={17} strokeWidth={1.4} color={C.mid} />{label}
