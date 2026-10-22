@@ -4454,9 +4454,14 @@ function NewAppointmentSheet({ open, onClose, data, act, date, user, prefill, in
   }
 
   const counsellor = data.counsellors.find((c) => c.id === form.counsellorId);
-  const slotOptions = counsellor
-    ? (counsellor.slots.length ? counsellor.slots : ["09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"])
-    : [];
+  // Only ever offer times this person is actually configured for on this
+  // date — a made-up default list (9am-7pm) implied they were free at hours
+  // they never agreed to work, and showed slots even when every one of them
+  // had already been overridden away (e.g. that day marked half/off).
+  // slotsForDate (not the bare counsellor.slots) also picks up a per-day
+  // override instead of silently falling back to the fake list when the
+  // override is an empty array.
+  const slotOptions = counsellor ? slotsForDate(counsellor, form.date) : [];
   const taken = new Set(data.appointments
     .filter((a) => a.date === form.date && a.counsellorId === form.counsellorId && a.status !== "Cancelled")
     .map((a) => a.time));
@@ -5411,9 +5416,10 @@ function CancelRescheduleSheet({ appt, data, act, onClose, initialMode }) {
 
   if (!appt) return null;
   const counsellor = data.counsellors.find((c) => c.id === appt.counsellorId);
-  const slotOptions = counsellor
-    ? (counsellor.slots.length ? counsellor.slots : ["09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"])
-    : [];
+  // Same as the booking sheet: this date's actual slots (recurring
+  // schedule plus any per-day override), never a made-up default list
+  // implying hours they're not actually available.
+  const slotOptions = counsellor ? slotsForDate(counsellor, newDate) : [];
   const taken = new Set(data.appointments
     .filter((a) => a.date === newDate && a.counsellorId === appt.counsellorId && a.status !== "Cancelled" && a.id !== appt.id)
     .map((a) => a.time));
